@@ -8,9 +8,9 @@ type Track = 'original' | 'processed';
 type AppStatus = 'idle' | 'ready' | 'processing' | 'error';
 
 const presets = [
-  { name: 'Soft touch', detail: 'Subtle warmth', amount: 34, color: 'teal' },
-  { name: 'Deep room', detail: 'Balanced body', amount: 62, color: 'amber' },
-  { name: 'Low tide', detail: 'Fuller impact', amount: 86, color: 'coral' },
+  { name: 'やさしく', detail: '自然なあたたかさ', amount: 34, color: 'teal' },
+  { name: 'しっかり', detail: 'バランスのよい厚み', amount: 62, color: 'amber' },
+  { name: 'ずっしり', detail: '迫力のある低音', amount: 86, color: 'coral' },
 ] as const;
 
 const waveform = [19, 35, 26, 50, 34, 64, 30, 42, 73, 44, 29, 52, 78, 35, 55, 69, 31, 47, 26, 61, 38, 76, 50, 28, 54, 36, 67, 44, 25, 49, 72, 33, 57, 40, 68, 30, 50, 76, 43, 26, 56, 37, 67, 46, 31, 53, 72, 35, 48, 26, 58, 74, 39, 52, 31, 63, 42, 28, 54, 69, 36, 47, 25, 61, 43, 76, 34, 56, 40, 68, 29, 53, 72, 36, 49, 27, 60, 45, 70, 34, 52, 29, 64, 42, 55, 31, 73, 39, 47, 26, 60, 36, 68, 44, 31, 55, 71, 37, 49, 28, 63, 41, 57, 33, 74, 38, 52, 25, 59, 43, 69, 35, 55];
@@ -90,7 +90,7 @@ function Brand() {
       </div>
       <div>
         <div className="font-mono-label text-[10px] font-bold tracking-[0.2em] text-[#efa960]">BASSLINE</div>
-        <div className="text-[11px] text-[#87979c]">A focused listening booth</div>
+        <div className="text-[11px] text-[#87979c]">音楽を深く楽しむ場所</div>
       </div>
     </div>
   );
@@ -103,12 +103,12 @@ function Header({ hasTrack, onReset }: { hasTrack: boolean; onReset: () => void 
       <div className="flex items-center gap-2 sm:gap-4">
         <div className="hidden items-center gap-2 text-[11px] text-[#87979c] sm:flex" data-testid="status-local">
           <span className="h-1.5 w-1.5 rounded-full bg-[#6fbbb7]" />
-          Stays in your browser
+            ブラウザ内だけで処理
         </div>
         {hasTrack && (
           <button type="button" onClick={onReset} className="flex items-center gap-2 rounded-lg px-2 py-2 text-xs text-[#9aabad] transition hover:bg-[#1b2831] hover:text-[#f1ece0]" data-testid="button-reset-track">
             <RotateCcw size={14} />
-            <span className="hidden sm:inline">Start over</span>
+            <span className="hidden sm:inline">最初からやり直す</span>
           </button>
         )}
       </div>
@@ -153,19 +153,19 @@ function EmptyState({ onFile, isDragging, onDragOver, onDragLeave, onDrop, error
       <div className="grid items-center gap-14 lg:grid-cols-[0.82fr_1.18fr] lg:gap-20">
         <section className="reveal">
           <div className="mb-5 flex items-center gap-3">
-            <span className="font-mono-label text-[10px] font-bold text-[#6fbbb7]" data-testid="text-kicker">LISTEN DIFFERENTLY</span>
+            <span className="font-mono-label text-[10px] font-bold text-[#6fbbb7]" data-testid="text-kicker">いつもの音を、もっと深く</span>
             <span className="h-px w-12 bg-[#6fbbb7]/40" />
           </div>
-          <h1 className="max-w-[560px] text-[clamp(3.15rem,7vw,6.2rem)] font-semibold leading-[0.92] tracking-[-0.075em] text-[#f1ece0]" data-testid="heading-empty">
-            Give your music<br /><span className="text-[#e9a05d]">more floor.</span>
+           <h1 className="max-w-[560px] text-[clamp(3.15rem,7vw,6.2rem)] font-semibold leading-[0.92] tracking-[-0.075em] text-[#f1ece0]" data-testid="heading-empty">
+             音楽をもっと<br /><span className="text-[#e9a05d]">深く響かせる。</span>
           </h1>
           <p className="mt-7 max-w-[450px] text-base leading-7 text-[#9aabad] sm:text-lg">
-            A warmer, deeper version of your favorite MP3 — tuned in your browser, ready in seconds.
+            お気に入りのMP3を、もっと深く、もっと心地よく。ブラウザ内で数秒で仕上がります。
           </p>
           <div className="mt-9 flex flex-wrap gap-x-6 gap-y-3 text-xs text-[#73868d]">
-            <span className="flex items-center gap-2"><Check size={14} className="text-[#6fbbb7]" /> No upload</span>
-            <span className="flex items-center gap-2"><Check size={14} className="text-[#6fbbb7]" /> Instant preview</span>
-            <span className="flex items-center gap-2"><Check size={14} className="text-[#6fbbb7]" /> Free to use</span>
+            <span className="flex items-center gap-2"><Check size={14} className="text-[#6fbbb7]" /> アップロード不要</span>
+            <span className="flex items-center gap-2"><Check size={14} className="text-[#6fbbb7]" /> すぐに試聴</span>
+            <span className="flex items-center gap-2"><Check size={14} className="text-[#6fbbb7]" /> 無料で利用</span>
           </div>
         </section>
         <section className="reveal reveal-delay-1">
@@ -179,15 +179,15 @@ function EmptyState({ onFile, isDragging, onDragOver, onDragLeave, onDrop, error
             <div className="grid-lines pointer-events-none absolute inset-0 opacity-70" />
             <div className="relative z-10">
               <BoothGraphic />
-              <h2 className="mt-3 text-xl font-semibold text-[#f1ece0]" data-testid="heading-upload">Drop an MP3 to begin</h2>
-              <p className="mt-2 text-sm text-[#829399]">or choose a file from your device</p>
+              <h2 className="mt-3 text-xl font-semibold text-[#f1ece0]" data-testid="heading-upload">MP3を入れて始める</h2>
+              <p className="mt-2 text-sm text-[#829399]">または端末からファイルを選択</p>
               <input ref={inputRef} onChange={handleChange} type="file" accept=".mp3,audio/mpeg,audio/mp3" className="hidden" data-testid="input-audio-file" />
               <button type="button" onClick={() => inputRef.current?.click()} className="mt-7 inline-flex items-center gap-2 rounded-xl bg-[#e9a05d] px-5 py-3 text-sm font-bold text-[#17222a] shadow-[0_10px_30px_rgba(225,151,73,0.18)] transition hover:-translate-y-0.5 hover:bg-[#f1b271] active:translate-y-0" data-testid="button-choose-mp3">
                 <Upload size={17} />
-                Choose MP3
+                MP3を選ぶ
               </button>
               <div className="mt-5 flex items-center justify-center gap-2 text-[10px] text-[#64777e]">
-                <FileAudio size={13} /> MP3 only · up to 50 MB
+                <FileAudio size={13} /> MP3のみ · 50MBまで
               </div>
             </div>
           </div>
@@ -195,13 +195,13 @@ function EmptyState({ onFile, isDragging, onDragOver, onDragLeave, onDrop, error
       </div>
       <div className="mt-24 flex items-center gap-5 border-t border-[#afbec1]/10 pt-6 text-xs text-[#64777e] sm:mt-32" data-testid="text-privacy-note">
         <span className="font-mono-label text-[9px] text-[#e9a05d]">01</span>
-        <span>Choose a track</span>
+        <span>曲を選ぶ</span>
         <span className="h-px w-8 bg-[#afbec1]/20" />
         <span className="font-mono-label text-[9px] text-[#e9a05d]">02</span>
-        <span>Shape the low end</span>
+        <span>重低音を調整</span>
         <span className="h-px w-8 bg-[#afbec1]/20" />
         <span className="font-mono-label text-[9px] text-[#e9a05d]">03</span>
-        <span>Take it with you</span>
+        <span>保存して楽しむ</span>
       </div>
     </main>
   );
@@ -217,7 +217,7 @@ function TrackWaveform({ progress, duration }: { progress: number; duration: num
         ))}
       </div>
       <div className="absolute bottom-2 left-3 right-3 flex justify-between font-mono-label text-[8px] text-[#62757b]">
-        <span>00:00</span><span>LISTENING VIEW</span><span data-testid="text-waveform-duration">{formatTime(duration)}</span>
+        <span>00:00</span><span>再生ビュー</span><span data-testid="text-waveform-duration">{formatTime(duration)}</span>
       </div>
     </div>
   );
@@ -248,7 +248,7 @@ function PlayerCard({ track, title, subtitle, src, duration, onPlay, isPlaying, 
             <div className="mt-1 text-xs text-[#829399]">{subtitle}</div>
           </div>
         </div>
-        <span className={`font-mono-label rounded-md px-2 py-1 text-[9px] ${track === 'processed' ? 'bg-[#e9a05d]/10 text-[#e9a05d]' : 'bg-[#afbec1]/[0.07] text-[#829399]'}`}>{track === 'processed' ? 'ENHANCED' : 'ORIGINAL'}</span>
+        <span className={`font-mono-label rounded-md px-2 py-1 text-[9px] ${track === 'processed' ? 'bg-[#e9a05d]/10 text-[#e9a05d]' : 'bg-[#afbec1]/[0.07] text-[#829399]'}`}>{track === 'processed' ? '加工済み' : '元音源'}</span>
       </div>
       <input type="range" min="0" max={duration || 1} step="0.1" value={Math.min(currentTime, duration || 1)} onChange={(event) => onSeek(Number(event.target.value))} disabled={disabled} className="audio-progress mt-5 w-full disabled:opacity-30" style={{ '--progress': `${progress}%` } as CSSProperties} data-testid={`input-seek-${track}`} />
       <div className="mt-2 flex justify-between font-mono-label text-[9px] text-[#64777e]"><span>{formatTime(currentTime)}</span><span>{formatTime(duration)}</span></div>
@@ -270,24 +270,24 @@ function Controls({ amount, onAmount, activePreset, onPreset, onEnhance, isProce
     <div className="soft-card rounded-[1.5rem] p-5 sm:p-6" data-testid="panel-controls">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="font-mono-label text-[10px] font-bold text-[#6fbbb7]">LOW-END SHAPER</div>
-          <h2 className="mt-2 text-xl font-semibold text-[#f1ece0]">Find your weight</h2>
+            <div className="font-mono-label text-[10px] font-bold text-[#6fbbb7]">重低音シェイパー</div>
+            <h2 className="mt-2 text-xl font-semibold text-[#f1ece0]">重低音の強さを調整</h2>
         </div>
-        <div className="rounded-lg bg-[#e9a05d]/10 px-3 py-2 text-right">
-          <div className="font-mono-label text-[9px] text-[#9aabad]">BOOST</div>
-          <div className="font-mono-label mt-0.5 text-base font-bold text-[#e9a05d]" data-testid="text-boost-value">+{amount}%</div>
+           <div className="rounded-lg bg-[#e9a05d]/10 px-3 py-2 text-right">
+             <div className="font-mono-label text-[9px] text-[#9aabad]">強さ</div>
+             <div className="font-mono-label mt-0.5 text-base font-bold text-[#e9a05d]" data-testid="text-boost-value">{amount}%</div>
         </div>
       </div>
-      <p className="mt-3 text-sm leading-6 text-[#829399]">Automatic bass enhancement, shaped to keep the rest of the mix clear.</p>
+       <p className="mt-3 text-sm leading-6 text-[#829399]">スライダーで重低音の強さを決めてから、加工を開始してください。</p>
       <div className="mt-7">
-        <div className="mb-3 flex justify-between text-xs text-[#829399]"><span>Gentle</span><span>Room-filling</span></div>
-        <input type="range" min="0" max="100" value={amount} onChange={(event) => onAmount(Number(event.target.value))} className="bass-slider w-full" style={{ '--bass-progress': `${amount}%` } as CSSProperties} data-testid="input-bass-amount" />
-        <div className="mt-3 flex justify-between font-mono-label text-[9px] text-[#5f7379]"><span>0</span><span>50</span><span>100</span></div>
+         <div className="mb-3 flex justify-between text-xs text-[#829399]"><span>ほんのり</span><span>迫力重視</span></div>
+         <input type="range" min="0" max="100" value={amount} aria-label="重低音の強さ" onChange={(event) => onAmount(Number(event.target.value))} className="bass-slider w-full" style={{ '--bass-progress': `${amount}%` } as CSSProperties} data-testid="input-bass-amount" />
+         <div className="mt-3 flex justify-between font-mono-label text-[9px] text-[#5f7379]"><span>0</span><span>50</span><span>100</span></div>
       </div>
       <div className="mt-7">
         <div className="mb-3 flex items-center justify-between">
-          <span className="font-mono-label text-[10px] text-[#829399]">QUICK PRESETS</span>
-          <span className="text-[10px] text-[#5f7379]">one click to try</span>
+           <span className="font-mono-label text-[10px] text-[#829399]">かんたんプリセット</span>
+           <span className="text-[10px] text-[#5f7379]">ワンタップで試す</span>
         </div>
         <div className="grid gap-2">
           {presets.map((preset) => (
@@ -302,7 +302,7 @@ function Controls({ amount, onAmount, activePreset, onPreset, onEnhance, isProce
         </div>
       </div>
       <button type="button" onClick={onEnhance} disabled={isProcessing} className="mt-7 flex w-full items-center justify-center gap-2 rounded-xl bg-[#e9a05d] px-4 py-3.5 text-sm font-bold text-[#17222a] transition hover:bg-[#f1b271] disabled:cursor-wait disabled:opacity-70" data-testid="button-enhance-audio">
-        {isProcessing ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-[#17222a]/30 border-t-[#17222a]" /> Shaping the low end…</> : <><Sparkles size={16} /> {hasProcessed ? 'Re-shape this track' : 'Enhance my track'}</>}
+         {isProcessing ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-[#17222a]/30 border-t-[#17222a]" /> 重低音を加工中…</> : <><Sparkles size={16} /> {hasProcessed ? 'この設定で再加工' : '重低音をつける'}</>}
       </button>
     </div>
   );
@@ -388,9 +388,9 @@ function LoadedState({ file, originalUrl, processedUrl, amount, setAmount, activ
     <main className="mx-auto w-full max-w-[1180px] px-5 pb-20 pt-7 sm:px-8 sm:pt-12 lg:px-10">
       <div className="reveal flex flex-col justify-between gap-6 border-b border-[#afbec1]/10 pb-7 sm:flex-row sm:items-end">
         <div>
-          <div className="mb-4 flex items-center gap-2 font-mono-label text-[10px] font-bold text-[#6fbbb7]"><span className="h-1.5 w-1.5 rounded-full bg-[#6fbbb7]" /> TRACK READY</div>
-          <h1 className="text-[clamp(2.4rem,5vw,4.6rem)] font-semibold leading-[0.94] tracking-[-0.065em] text-[#f1ece0]" data-testid="heading-ready">Make it <span className="text-[#e9a05d]">land.</span></h1>
-          <p className="mt-4 text-sm text-[#829399]">Your file is local. Shape the low end, then listen for the difference.</p>
+           <div className="mb-4 flex items-center gap-2 font-mono-label text-[10px] font-bold text-[#6fbbb7]"><span className="h-1.5 w-1.5 rounded-full bg-[#6fbbb7]" /> 準備完了</div>
+           <h1 className="text-[clamp(2.4rem,5vw,4.6rem)] font-semibold leading-[0.94] tracking-[-0.065em] text-[#f1ece0]" data-testid="heading-ready">音をもっと<span className="text-[#e9a05d]">響かせる。</span></h1>
+           <p className="mt-4 text-sm text-[#829399]">ファイルは端末内にあります。重低音を調整して、違いを聴いてみましょう。</p>
         </div>
         <div className="flex items-center gap-2 rounded-xl border border-[#afbec1]/10 bg-[#17232b] px-3 py-2.5">
           <FileAudio size={17} className="text-[#e9a05d]" />
@@ -402,29 +402,29 @@ function LoadedState({ file, originalUrl, processedUrl, amount, setAmount, activ
       <div className="mt-8 grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
         <section className="soft-card reveal reveal-delay-1 rounded-[1.5rem] p-5 sm:p-7" data-testid="panel-listening">
           <div className="flex items-center justify-between">
-            <div><div className="font-mono-label text-[10px] text-[#6fbbb7]">THE LISTENING BOOTH</div><h2 className="mt-2 text-xl font-semibold text-[#f1ece0]">Hear it before you save it</h2></div>
+           <div><div className="font-mono-label text-[10px] text-[#6fbbb7]">試聴スペース</div><h2 className="mt-2 text-xl font-semibold text-[#f1ece0]">保存する前に聴いてみる</h2></div>
             <Headphones size={21} className="text-[#e9a05d]" />
           </div>
           <TrackWaveform progress={duration ? (time / duration) * 100 : 0} duration={duration} />
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <PlayerCard track="original" title="Original" subtitle="Your starting point" src={originalUrl} duration={duration} onPlay={() => togglePlay('original')} isPlaying={playing === 'original'} currentTime={playing === 'original' ? time : 0} onSeek={seek} />
-            <PlayerCard track="processed" title="Bassline version" subtitle={processedUrl ? `+${amount}% low end` : 'Enhance to unlock'} src={processedUrl} duration={duration} onPlay={() => togglePlay('processed')} isPlaying={playing === 'processed'} currentTime={playing === 'processed' ? time : 0} onSeek={seek} disabled={!processedUrl || isProcessing} />
+             <PlayerCard track="original" title="元の音源" subtitle="加工前の音" src={originalUrl} duration={duration} onPlay={() => togglePlay('original')} isPlaying={playing === 'original'} currentTime={playing === 'original' ? time : 0} onSeek={seek} />
+             <PlayerCard track="processed" title="重低音バージョン" subtitle={processedUrl ? `重低音 ${amount}%` : '加工すると試聴できます'} src={processedUrl} duration={duration} onPlay={() => togglePlay('processed')} isPlaying={playing === 'processed'} currentTime={playing === 'processed' ? time : 0} onSeek={seek} disabled={!processedUrl || isProcessing} />
           </div>
           <div className="mt-6 flex items-center justify-between border-t border-[#afbec1]/10 pt-5">
-            <div className="flex items-center gap-2 text-xs text-[#73868d]"><Volume2 size={14} /><span>Preview at a comfortable volume</span></div>
+             <div className="flex items-center gap-2 text-xs text-[#73868d]"><Volume2 size={14} /><span>無理のない音量で試聴してください</span></div>
             <span className="font-mono-label text-[9px] text-[#5f7379]" data-testid="text-duration">{formatTime(duration)}</span>
           </div>
         </section>
         <section className="reveal reveal-delay-2">
           <Controls amount={amount} onAmount={(value) => { setAmount(value); setActivePreset(null); }} activePreset={activePreset} onPreset={(value) => { setAmount(value); setActivePreset(value); }} onEnhance={onEnhance} isProcessing={isProcessing} hasProcessed={Boolean(processedUrl)} />
-          {processedUrl && !isProcessing && <button type="button" onClick={download} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#6fbbb7]/35 bg-[#6fbbb7]/[0.08] px-4 py-3.5 text-sm font-bold text-[#9ed4d0] transition hover:border-[#6fbbb7]/70 hover:bg-[#6fbbb7]/[0.13]" data-testid="button-download-enhanced"><Download size={17} /> Download enhanced WAV</button>}
+           {processedUrl && !isProcessing && <button type="button" onClick={download} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#6fbbb7]/35 bg-[#6fbbb7]/[0.08] px-4 py-3.5 text-sm font-bold text-[#9ed4d0] transition hover:border-[#6fbbb7]/70 hover:bg-[#6fbbb7]/[0.13]" data-testid="button-download-enhanced"><Download size={17} /> 加工済みWAVを保存</button>}
         </section>
       </div>
       <div className="reveal reveal-delay-3 mt-6 grid gap-3 sm:grid-cols-3">
         {[
-          { icon: Zap, title: 'Made for movement', body: 'A low shelf and gentle compression add weight without muddying the mix.' },
-          { icon: Headphones, title: 'Trust your ears', body: 'Switch between the original and enhanced versions before you commit.' },
-          { icon: Download, title: 'Yours to keep', body: 'Export the result locally. Nothing leaves this listening booth.' },
+           { icon: Zap, title: '音に厚みをプラス', body: '低音域を強調し、音がこもりすぎないように整えます。' },
+           { icon: Headphones, title: '耳で聴き比べ', body: '元の音と加工後の音を切り替えて確認できます。' },
+           { icon: Download, title: '端末に保存', body: '加工結果を保存できます。音源が外部へ送られることはありません。' },
         ].map(({ icon: Icon, title, body }) => <div key={title} className="rounded-xl border border-[#afbec1]/10 bg-[#17232b]/50 p-4"><Icon size={16} className="text-[#e9a05d]" /><div className="mt-3 text-xs font-semibold text-[#dce5e1]">{title}</div><p className="mt-1 text-[11px] leading-5 text-[#71848a]">{body}</p></div>)}
       </div>
     </main>
@@ -448,12 +448,12 @@ function Home() {
     setError(null);
     if (!next.name.toLowerCase().endsWith('.mp3') && next.type !== 'audio/mpeg' && next.type !== 'audio/mp3') {
       setStatus('error');
-      setError('That file is not an MP3. Choose an MP3 to keep the booth focused.');
+       setError('MP3ファイルではありません。MP3を選択してください。');
       return;
     }
     if (next.size > 50 * 1024 * 1024) {
       setStatus('error');
-      setError('This track is over 50 MB. Try a smaller MP3 for a quicker local preview.');
+       setError('50MBを超えています。より小さいMP3を選ぶと、すばやく処理できます。');
       return;
     }
     if (processedUrl) URL.revokeObjectURL(processedUrl);
@@ -475,7 +475,7 @@ function Home() {
       setStatus('ready');
     } catch {
       setStatus('ready');
-      setError('We could not decode that MP3 in this browser. Try another file or a shorter export.');
+       setError('このブラウザでMP3を読み込めませんでした。別のファイルをお試しください。');
     }
   };
 
@@ -500,8 +500,8 @@ function Home() {
       <Header hasTrack={Boolean(file)} onReset={reset} />
       {file && status !== 'error' ? <LoadedState file={file} originalUrl={objectUrl} processedUrl={processedUrl} amount={amount} setAmount={setAmount} activePreset={activePreset} setActivePreset={setActivePreset} status={status} error={error} onEnhance={enhance} onReset={reset} /> : <EmptyState onFile={chooseFile} error={error} isDragging={dragging} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop} />}
       <footer className="mx-auto flex w-full max-w-[1180px] items-center justify-between border-t border-[#afbec1]/10 px-5 py-6 text-[10px] text-[#5e7178] sm:px-8 lg:px-10" data-testid="footer-main">
-        <span className="font-mono-label">BASSLINE / 2024</span>
-        <span className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-[#6fbbb7]" /> Local audio processing</span>
+         <span className="font-mono-label">BASSLINE / 2024</span>
+         <span className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-[#6fbbb7]" /> 音声は端末内で処理</span>
       </footer>
     </div>
   );
