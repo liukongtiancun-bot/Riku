@@ -1,5 +1,5 @@
 import { type ChangeEvent, type CSSProperties, type DragEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { AudioLines, Check, CircleAlert, Download, FileAudio, Headphones, Pause, Play, RotateCcw, Sparkles, Upload, Volume2, X, Zap } from 'lucide-react';
+import { AudioLines, Check, CircleAlert, Download, FileAudio, Headphones, Pause, Play, RotateCcw, ShieldCheck, Sparkles, Upload, Volume2, X, Zap } from 'lucide-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
@@ -76,7 +76,15 @@ async function enhanceAudio(file: File, amount: number) {
   compressor.ratio.value = 3;
   compressor.attack.value = 0.012;
   compressor.release.value = 0.18;
-  bufferSource.connect(lowShelf).connect(compressor).connect(offline.destination);
+  const safetyGain = offline.createGain();
+  safetyGain.gain.value = 0.86;
+  const limiter = offline.createDynamicsCompressor();
+  limiter.threshold.value = -1;
+  limiter.knee.value = 0;
+  limiter.ratio.value = 20;
+  limiter.attack.value = 0.003;
+  limiter.release.value = 0.12;
+  bufferSource.connect(lowShelf).connect(compressor).connect(safetyGain).connect(limiter).connect(offline.destination);
   bufferSource.start();
   const rendered = await offline.startRendering();
   return bufferToWav(rendered);
@@ -279,6 +287,11 @@ function Controls({ amount, onAmount, activePreset, onPreset, onEnhance, isProce
         </div>
       </div>
        <p className="mt-3 text-sm leading-6 text-[#829399]">スライダーで重低音の強さを決めてから、加工を開始してください。</p>
+       <div className="mt-4 flex items-center gap-2 rounded-lg border border-[#6fbbb7]/20 bg-[#6fbbb7]/[0.06] px-3 py-2.5 text-xs text-[#9ed4d0]" data-testid="status-clipping-protection">
+         <ShieldCheck size={15} className="shrink-0" />
+         <span className="font-semibold">音割れ防止：自動</span>
+         <span className="text-[#6fbbb7]/75">ピークを安全に抑えます</span>
+       </div>
       <div className="mt-7">
          <div className="mb-3 flex justify-between text-xs text-[#829399]"><span>ほんのり</span><span>迫力重視</span></div>
          <input type="range" min="0" max="100" value={amount} aria-label="重低音の強さ" onChange={(event) => onAmount(Number(event.target.value))} className="bass-slider w-full" style={{ '--bass-progress': `${amount}%` } as CSSProperties} data-testid="input-bass-amount" />
