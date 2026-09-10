@@ -1,0 +1,534 @@
+import { type ChangeEvent, type CSSProperties, type DragEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { AudioLines, Check, CircleAlert, Download, FileAudio, Headphones, Pause, Play, RotateCcw, Sparkles, Upload, Volume2, X, Zap } from 'lucide-react';
+import { ErrorBoundary } from '@/components/error-boundary';
+import NotFound from '@/pages/not-found';
+import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
+
+type Track = 'original' | 'processed';
+type AppStatus = 'idle' | 'ready' | 'processing' | 'error';
+
+const presets = [
+  { name: 'Soft touch', detail: 'Subtle warmth', amount: 34, color: 'teal' },
+  { name: 'Deep room', detail: 'Balanced body', amount: 62, color: 'amber' },
+  { name: 'Low tide', detail: 'Fuller impact', amount: 86, color: 'coral' },
+] as const;
+
+const waveform = [19, 35, 26, 50, 34, 64, 30, 42, 73, 44, 29, 52, 78, 35, 55, 69, 31, 47, 26, 61, 38, 76, 50, 28, 54, 36, 67, 44, 25, 49, 72, 33, 57, 40, 68, 30, 50, 76, 43, 26, 56, 37, 67, 46, 31, 53, 72, 35, 48, 26, 58, 74, 39, 52, 31, 63, 42, 28, 54, 69, 36, 47, 25, 61, 43, 76, 34, 56, 40, 68, 29, 53, 72, 36, 49, 27, 60, 45, 70, 34, 52, 29, 64, 42, 55, 31, 73, 39, 47, 26, 60, 36, 68, 44, 31, 55, 71, 37, 49, 28, 63, 41, 57, 33, 74, 38, 52, 25, 59, 43, 69, 35, 55];
+
+function formatTime(seconds: number) {
+  if (!Number.isFinite(seconds)) return '00:00';
+  const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
+  const secs = Math.floor(seconds % 60).toString().padStart(2, '0');
+  return `${mins}:${secs}`;
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function bufferToWav(buffer: AudioBuffer) {
+  const channels = buffer.numberOfChannels;
+  const frameLength = buffer.length * channels * 2;
+  const view = new DataView(new ArrayBuffer(44 + frameLength));
+  const writeString = (offset: number, value: string) => {
+    [...value].forEach((character, index) => view.setUint8(offset + index, character.charCodeAt(0)));
+  };
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + frameLength, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channels, true);
+  view.setUint32(24, buffer.sampleRate, true);
+  view.setUint32(28, buffer.sampleRate * channels * 2, true);
+  view.setUint16(32, channels * 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, 'data');
+  view.setUint32(40, frameLength, true);
+  let offset = 44;
+  for (let frame = 0; frame < buffer.length; frame += 1) {
+    for (let channel = 0; channel < channels; channel += 1) {
+      const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[frame]));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      offset += 2;
+    }
+  }
+  return new Blob([view], { type: 'audio/wav' });
+}
+
+async function enhanceAudio(file: File, amount: number) {
+  const source = await file.arrayBuffer();
+  const audioContext = new AudioContext();
+  const decoded = await audioContext.decodeAudioData(source);
+  await audioContext.close();
+  const offline = new OfflineAudioContext(decoded.numberOfChannels, decoded.length, decoded.sampleRate);
+  const bufferSource = offline.createBufferSource();
+  bufferSource.buffer = decoded;
+  const lowShelf = offline.createBiquadFilter();
+  lowShelf.type = 'lowshelf';
+  lowShelf.frequency.value = 145;
+  lowShelf.gain.value = 2 + amount * 0.105;
+  const compressor = offline.createDynamicsCompressor();
+  compressor.threshold.value = -18;
+  compressor.knee.value = 18;
+  compressor.ratio.value = 3;
+  compressor.attack.value = 0.012;
+  compressor.release.value = 0.18;
+  bufferSource.connect(lowShelf).connect(compressor).connect(offline.destination);
+  bufferSource.start();
+  const rendered = await offline.startRendering();
+  return bufferToWav(rendered);
+}
+
+function Brand() {
+  return (
+    <div className="flex items-center gap-3" data-testid="brand-bassline">
+      <div className="brand-mark flex h-10 w-10 items-center justify-center rounded-xl bg-[#e9a05d] text-[#152029]">
+        <AudioLines size={21} strokeWidth={2.5} />
+      </div>
+      <div>
+        <div className="font-mono-label text-[10px] font-bold tracking-[0.2em] text-[#efa960]">BASSLINE</div>
+        <div className="text-[11px] text-[#87979c]">A focused listening booth</div>
+      </div>
+    </div>
+  );
+}
+
+function Header({ hasTrack, onReset }: { hasTrack: boolean; onReset: () => void }) {
+  return (
+    <header className="mx-auto flex w-full max-w-[1180px] items-center justify-between px-5 py-5 sm:px-8 lg:px-10" data-testid="header-main">
+      <Brand />
+      <div className="flex items-center gap-2 sm:gap-4">
+        <div className="hidden items-center gap-2 text-[11px] text-[#87979c] sm:flex" data-testid="status-local">
+          <span className="h-1.5 w-1.5 rounded-full bg-[#6fbbb7]" />
+          Stays in your browser
+        </div>
+        {hasTrack && (
+          <button type="button" onClick={onReset} className="flex items-center gap-2 rounded-lg px-2 py-2 text-xs text-[#9aabad] transition hover:bg-[#1b2831] hover:text-[#f1ece0]" data-testid="button-reset-track">
+            <RotateCcw size={14} />
+            <span className="hidden sm:inline">Start over</span>
+          </button>
+        )}
+      </div>
+    </header>
+  );
+}
+
+function BoothGraphic() {
+  return (
+    <div className="relative mx-auto h-56 w-56 sm:h-64 sm:w-64" aria-hidden="true">
+      <div className="booth-orbit absolute inset-0 rounded-full" />
+      <div className="absolute inset-[15%] rounded-full border border-[#efaa60]/15" />
+      <div className="absolute inset-[29%] rounded-full bg-[#202d35] shadow-[0_0_70px_rgba(232,157,78,0.09)]" />
+      <div className="absolute inset-[38%] flex items-center justify-center rounded-full border border-[#efaa60]/30 bg-[#18232b]">
+        <div className="flex items-end gap-[3px]">
+          {[12, 23, 17, 34, 22, 15, 28].map((height, index) => (
+            <span key={index} className="wave-bar block w-[3px] rounded-full bg-[#e9a05d]" style={{ height }} />
+          ))}
+        </div>
+      </div>
+      <span className="absolute left-[5%] top-1/2 h-px w-4 bg-[#6fbbb7]/70" />
+      <span className="absolute right-[5%] top-1/2 h-px w-4 bg-[#6fbbb7]/70" />
+      <span className="absolute left-1/2 top-[5%] h-4 w-px bg-[#e9a05d]/60" />
+      <span className="absolute bottom-[5%] left-1/2 h-4 w-px bg-[#e9a05d]/60" />
+    </div>
+  );
+}
+
+function EmptyState({ onFile, isDragging, onDragOver, onDragLeave, onDrop, error }: {
+  onFile: (file?: File) => void;
+  isDragging: boolean;
+  onDragOver: (event: DragEvent<HTMLDivElement>) => void;
+  onDragLeave: () => void;
+  onDrop: (event: DragEvent<HTMLDivElement>) => void;
+  error: string | null;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const handleChange = (event: ChangeEvent<HTMLInputElement>) => onFile(event.target.files?.[0]);
+  return (
+    <main className="mx-auto w-full max-w-[1180px] px-5 pb-20 pt-10 sm:px-8 sm:pt-16 lg:px-10 lg:pt-20">
+      {error && <div className="mb-6 flex items-start gap-3 rounded-xl border border-[#d97962]/30 bg-[#d97962]/[0.08] px-4 py-3 text-sm text-[#e6a293]" role="alert" data-testid="alert-upload-error"><CircleAlert size={17} className="mt-0.5 shrink-0" /><span>{error}</span></div>}
+      <div className="grid items-center gap-14 lg:grid-cols-[0.82fr_1.18fr] lg:gap-20">
+        <section className="reveal">
+          <div className="mb-5 flex items-center gap-3">
+            <span className="font-mono-label text-[10px] font-bold text-[#6fbbb7]" data-testid="text-kicker">LISTEN DIFFERENTLY</span>
+            <span className="h-px w-12 bg-[#6fbbb7]/40" />
+          </div>
+          <h1 className="max-w-[560px] text-[clamp(3.15rem,7vw,6.2rem)] font-semibold leading-[0.92] tracking-[-0.075em] text-[#f1ece0]" data-testid="heading-empty">
+            Give your music<br /><span className="text-[#e9a05d]">more floor.</span>
+          </h1>
+          <p className="mt-7 max-w-[450px] text-base leading-7 text-[#9aabad] sm:text-lg">
+            A warmer, deeper version of your favorite MP3 — tuned in your browser, ready in seconds.
+          </p>
+          <div className="mt-9 flex flex-wrap gap-x-6 gap-y-3 text-xs text-[#73868d]">
+            <span className="flex items-center gap-2"><Check size={14} className="text-[#6fbbb7]" /> No upload</span>
+            <span className="flex items-center gap-2"><Check size={14} className="text-[#6fbbb7]" /> Instant preview</span>
+            <span className="flex items-center gap-2"><Check size={14} className="text-[#6fbbb7]" /> Free to use</span>
+          </div>
+        </section>
+        <section className="reveal reveal-delay-1">
+          <div
+            className={`upload-panel group relative flex min-h-[425px] flex-col items-center justify-center overflow-hidden rounded-[2rem] p-7 text-center transition-all duration-300 sm:min-h-[475px] ${isDragging ? 'is-dragging' : ''}`}
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
+            data-testid="dropzone-audio"
+          >
+            <div className="grid-lines pointer-events-none absolute inset-0 opacity-70" />
+            <div className="relative z-10">
+              <BoothGraphic />
+              <h2 className="mt-3 text-xl font-semibold text-[#f1ece0]" data-testid="heading-upload">Drop an MP3 to begin</h2>
+              <p className="mt-2 text-sm text-[#829399]">or choose a file from your device</p>
+              <input ref={inputRef} onChange={handleChange} type="file" accept=".mp3,audio/mpeg,audio/mp3" className="hidden" data-testid="input-audio-file" />
+              <button type="button" onClick={() => inputRef.current?.click()} className="mt-7 inline-flex items-center gap-2 rounded-xl bg-[#e9a05d] px-5 py-3 text-sm font-bold text-[#17222a] shadow-[0_10px_30px_rgba(225,151,73,0.18)] transition hover:-translate-y-0.5 hover:bg-[#f1b271] active:translate-y-0" data-testid="button-choose-mp3">
+                <Upload size={17} />
+                Choose MP3
+              </button>
+              <div className="mt-5 flex items-center justify-center gap-2 text-[10px] text-[#64777e]">
+                <FileAudio size={13} /> MP3 only · up to 50 MB
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+      <div className="mt-24 flex items-center gap-5 border-t border-[#afbec1]/10 pt-6 text-xs text-[#64777e] sm:mt-32" data-testid="text-privacy-note">
+        <span className="font-mono-label text-[9px] text-[#e9a05d]">01</span>
+        <span>Choose a track</span>
+        <span className="h-px w-8 bg-[#afbec1]/20" />
+        <span className="font-mono-label text-[9px] text-[#e9a05d]">02</span>
+        <span>Shape the low end</span>
+        <span className="h-px w-8 bg-[#afbec1]/20" />
+        <span className="font-mono-label text-[9px] text-[#e9a05d]">03</span>
+        <span>Take it with you</span>
+      </div>
+    </main>
+  );
+}
+
+function TrackWaveform({ progress, duration }: { progress: number; duration: number }) {
+  return (
+    <div className="relative mt-8 h-24 overflow-hidden rounded-xl border border-[#afbec1]/10 bg-[#17232b] px-3" data-testid="visual-waveform">
+      <div className="absolute inset-y-0 left-0 bg-[#e9a05d]/[0.07]" style={{ width: `${progress}%` }} />
+      <div className="relative flex h-full items-center justify-between gap-[2px]">
+        {waveform.map((height, index) => (
+          <span key={index} className={`block w-full max-w-[5px] rounded-full transition-colors duration-300 ${index / waveform.length * 100 < progress ? 'bg-[#e9a05d]' : 'bg-[#73868d]/50'}`} style={{ height: `${height}%` }} />
+        ))}
+      </div>
+      <div className="absolute bottom-2 left-3 right-3 flex justify-between font-mono-label text-[8px] text-[#62757b]">
+        <span>00:00</span><span>LISTENING VIEW</span><span data-testid="text-waveform-duration">{formatTime(duration)}</span>
+      </div>
+    </div>
+  );
+}
+
+function PlayerCard({ track, title, subtitle, src, duration, onPlay, isPlaying, currentTime, onSeek, disabled }: {
+  track: Track;
+  title: string;
+  subtitle: string;
+  src?: string;
+  duration: number;
+  onPlay: () => void;
+  isPlaying: boolean;
+  currentTime: number;
+  onSeek: (value: number) => void;
+  disabled?: boolean;
+}) {
+  const progress = duration ? (currentTime / duration) * 100 : 0;
+  return (
+    <div className={`rounded-[1.5rem] border p-5 transition-colors ${track === 'processed' ? 'border-[#e9a05d]/30 bg-[#1f2c34]' : 'border-[#afbec1]/10 bg-[#19252d]'}`} data-testid={`card-player-${track}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <button type="button" disabled={disabled} onClick={onPlay} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition hover:scale-105 disabled:opacity-40 ${track === 'processed' ? 'bg-[#e9a05d] text-[#17222a]' : 'bg-[#29414a] text-[#d4e1df]'}`} data-testid={`button-play-${track}`}>
+            {isPlaying ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}
+          </button>
+          <div>
+            <div className="text-sm font-semibold text-[#f1ece0]" data-testid={`text-title-${track}`}>{title}</div>
+            <div className="mt-1 text-xs text-[#829399]">{subtitle}</div>
+          </div>
+        </div>
+        <span className={`font-mono-label rounded-md px-2 py-1 text-[9px] ${track === 'processed' ? 'bg-[#e9a05d]/10 text-[#e9a05d]' : 'bg-[#afbec1]/[0.07] text-[#829399]'}`}>{track === 'processed' ? 'ENHANCED' : 'ORIGINAL'}</span>
+      </div>
+      <input type="range" min="0" max={duration || 1} step="0.1" value={Math.min(currentTime, duration || 1)} onChange={(event) => onSeek(Number(event.target.value))} disabled={disabled} className="audio-progress mt-5 w-full disabled:opacity-30" style={{ '--progress': `${progress}%` } as CSSProperties} data-testid={`input-seek-${track}`} />
+      <div className="mt-2 flex justify-between font-mono-label text-[9px] text-[#64777e]"><span>{formatTime(currentTime)}</span><span>{formatTime(duration)}</span></div>
+      {src && <audio src={src} preload="metadata" className="hidden" />}
+    </div>
+  );
+}
+
+function Controls({ amount, onAmount, activePreset, onPreset, onEnhance, isProcessing, hasProcessed }: {
+  amount: number;
+  onAmount: (amount: number) => void;
+  activePreset: number | null;
+  onPreset: (amount: number) => void;
+  onEnhance: () => void;
+  isProcessing: boolean;
+  hasProcessed: boolean;
+}) {
+  return (
+    <div className="soft-card rounded-[1.5rem] p-5 sm:p-6" data-testid="panel-controls">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="font-mono-label text-[10px] font-bold text-[#6fbbb7]">LOW-END SHAPER</div>
+          <h2 className="mt-2 text-xl font-semibold text-[#f1ece0]">Find your weight</h2>
+        </div>
+        <div className="rounded-lg bg-[#e9a05d]/10 px-3 py-2 text-right">
+          <div className="font-mono-label text-[9px] text-[#9aabad]">BOOST</div>
+          <div className="font-mono-label mt-0.5 text-base font-bold text-[#e9a05d]" data-testid="text-boost-value">+{amount}%</div>
+        </div>
+      </div>
+      <p className="mt-3 text-sm leading-6 text-[#829399]">Automatic bass enhancement, shaped to keep the rest of the mix clear.</p>
+      <div className="mt-7">
+        <div className="mb-3 flex justify-between text-xs text-[#829399]"><span>Gentle</span><span>Room-filling</span></div>
+        <input type="range" min="0" max="100" value={amount} onChange={(event) => onAmount(Number(event.target.value))} className="bass-slider w-full" style={{ '--bass-progress': `${amount}%` } as CSSProperties} data-testid="input-bass-amount" />
+        <div className="mt-3 flex justify-between font-mono-label text-[9px] text-[#5f7379]"><span>0</span><span>50</span><span>100</span></div>
+      </div>
+      <div className="mt-7">
+        <div className="mb-3 flex items-center justify-between">
+          <span className="font-mono-label text-[10px] text-[#829399]">QUICK PRESETS</span>
+          <span className="text-[10px] text-[#5f7379]">one click to try</span>
+        </div>
+        <div className="grid gap-2">
+          {presets.map((preset) => (
+            <button key={preset.name} type="button" onClick={() => onPreset(preset.amount)} className={`preset-button flex items-center justify-between rounded-xl border px-3 py-3 text-left ${activePreset === preset.amount ? 'is-active' : 'border-[#afbec1]/10 bg-[#18242c]'}`} data-testid={`button-preset-${preset.name.toLowerCase().replace(' ', '-')}`}>
+              <span className="flex items-center gap-3">
+                <span className={`h-2 w-2 rounded-full ${preset.color === 'teal' ? 'bg-[#6fbbb7]' : preset.color === 'coral' ? 'bg-[#d97962]' : 'bg-[#e9a05d]'}`} />
+                <span><span className="block text-sm font-medium text-[#dce5e1]">{preset.name}</span><span className="mt-0.5 block text-[10px] text-[#73868d]">{preset.detail}</span></span>
+              </span>
+              <span className="font-mono-label text-[10px] text-[#87979c]">+{preset.amount}%</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <button type="button" onClick={onEnhance} disabled={isProcessing} className="mt-7 flex w-full items-center justify-center gap-2 rounded-xl bg-[#e9a05d] px-4 py-3.5 text-sm font-bold text-[#17222a] transition hover:bg-[#f1b271] disabled:cursor-wait disabled:opacity-70" data-testid="button-enhance-audio">
+        {isProcessing ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-[#17222a]/30 border-t-[#17222a]" /> Shaping the low end…</> : <><Sparkles size={16} /> {hasProcessed ? 'Re-shape this track' : 'Enhance my track'}</>}
+      </button>
+    </div>
+  );
+}
+
+function LoadedState({ file, originalUrl, processedUrl, amount, setAmount, activePreset, setActivePreset, status, error, onEnhance, onReset }: {
+  file: File;
+  originalUrl: string;
+  processedUrl?: string;
+  amount: number;
+  setAmount: (amount: number) => void;
+  activePreset: number | null;
+  setActivePreset: (amount: number | null) => void;
+  status: AppStatus;
+  error: string | null;
+  onEnhance: () => void;
+  onReset: () => void;
+}) {
+  const [duration, setDuration] = useState(0);
+  const [playing, setPlaying] = useState<Track | null>(null);
+  const [time, setTime] = useState(0);
+  const originalAudio = useRef<HTMLAudioElement | null>(null);
+  const processedAudio = useRef<HTMLAudioElement | null>(null);
+  const isProcessing = status === 'processing';
+
+  useEffect(() => {
+    const original = new Audio(originalUrl);
+    const processed = processedUrl ? new Audio(processedUrl) : null;
+    originalAudio.current = original;
+    processedAudio.current = processed;
+    const handleMetadata = () => setDuration(original.duration || 0);
+    const handleTime = () => setTime((playing === 'processed' ? processed : original)?.currentTime || 0);
+    const handleEnded = () => { setPlaying(null); setTime(0); };
+    original.addEventListener('loadedmetadata', handleMetadata);
+    original.addEventListener('timeupdate', handleTime);
+    original.addEventListener('ended', handleEnded);
+    if (processed) {
+      processed.addEventListener('timeupdate', handleTime);
+      processed.addEventListener('ended', handleEnded);
+    }
+    return () => {
+      original.pause();
+      processed?.pause();
+      original.removeEventListener('loadedmetadata', handleMetadata);
+      original.removeEventListener('timeupdate', handleTime);
+      original.removeEventListener('ended', handleEnded);
+      processed?.removeEventListener('timeupdate', handleTime);
+      processed?.removeEventListener('ended', handleEnded);
+    };
+  }, [originalUrl, processedUrl, playing]);
+
+  const togglePlay = (track: Track) => {
+    const audio = track === 'original' ? originalAudio.current : processedAudio.current;
+    if (!audio) return;
+    if (playing === track) {
+      audio.pause();
+      setPlaying(null);
+      return;
+    }
+    originalAudio.current?.pause();
+    processedAudio.current?.pause();
+    audio.currentTime = time;
+    void audio.play().then(() => setPlaying(track)).catch(() => setPlaying(null));
+  };
+
+  const seek = (value: number) => {
+    if (originalAudio.current) originalAudio.current.currentTime = value;
+    if (processedAudio.current) processedAudio.current.currentTime = value;
+    setTime(value);
+  };
+
+  const download = () => {
+    if (!processedUrl) return;
+    const link = document.createElement('a');
+    link.href = processedUrl;
+    link.download = `${file.name.replace(/\.[^/.]+$/, '')}-bassline.wav`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  return (
+    <main className="mx-auto w-full max-w-[1180px] px-5 pb-20 pt-7 sm:px-8 sm:pt-12 lg:px-10">
+      <div className="reveal flex flex-col justify-between gap-6 border-b border-[#afbec1]/10 pb-7 sm:flex-row sm:items-end">
+        <div>
+          <div className="mb-4 flex items-center gap-2 font-mono-label text-[10px] font-bold text-[#6fbbb7]"><span className="h-1.5 w-1.5 rounded-full bg-[#6fbbb7]" /> TRACK READY</div>
+          <h1 className="text-[clamp(2.4rem,5vw,4.6rem)] font-semibold leading-[0.94] tracking-[-0.065em] text-[#f1ece0]" data-testid="heading-ready">Make it <span className="text-[#e9a05d]">land.</span></h1>
+          <p className="mt-4 text-sm text-[#829399]">Your file is local. Shape the low end, then listen for the difference.</p>
+        </div>
+        <div className="flex items-center gap-2 rounded-xl border border-[#afbec1]/10 bg-[#17232b] px-3 py-2.5">
+          <FileAudio size={17} className="text-[#e9a05d]" />
+          <div className="min-w-0"><div className="max-w-[205px] truncate text-xs font-medium text-[#dce5e1]" data-testid="text-file-name">{file.name}</div><div className="mt-0.5 text-[10px] text-[#6f8389]">{formatBytes(file.size)} · MP3</div></div>
+          <Check size={15} className="ml-2 text-[#6fbbb7]" />
+        </div>
+      </div>
+      {error && <div className="reveal mt-6 flex items-start gap-3 rounded-xl border border-[#d97962]/30 bg-[#d97962]/[0.08] px-4 py-3 text-sm text-[#e6a293]" role="alert" data-testid="alert-processing-error"><CircleAlert size={17} className="mt-0.5 shrink-0" /> <span>{error}</span><button type="button" onClick={onReset} className="ml-auto p-1 text-[#e6a293] hover:text-[#f1ece0]" aria-label="Dismiss error" data-testid="button-dismiss-error"><X size={15} /></button></div>}
+      <div className="mt-8 grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+        <section className="soft-card reveal reveal-delay-1 rounded-[1.5rem] p-5 sm:p-7" data-testid="panel-listening">
+          <div className="flex items-center justify-between">
+            <div><div className="font-mono-label text-[10px] text-[#6fbbb7]">THE LISTENING BOOTH</div><h2 className="mt-2 text-xl font-semibold text-[#f1ece0]">Hear it before you save it</h2></div>
+            <Headphones size={21} className="text-[#e9a05d]" />
+          </div>
+          <TrackWaveform progress={duration ? (time / duration) * 100 : 0} duration={duration} />
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <PlayerCard track="original" title="Original" subtitle="Your starting point" src={originalUrl} duration={duration} onPlay={() => togglePlay('original')} isPlaying={playing === 'original'} currentTime={playing === 'original' ? time : 0} onSeek={seek} />
+            <PlayerCard track="processed" title="Bassline version" subtitle={processedUrl ? `+${amount}% low end` : 'Enhance to unlock'} src={processedUrl} duration={duration} onPlay={() => togglePlay('processed')} isPlaying={playing === 'processed'} currentTime={playing === 'processed' ? time : 0} onSeek={seek} disabled={!processedUrl || isProcessing} />
+          </div>
+          <div className="mt-6 flex items-center justify-between border-t border-[#afbec1]/10 pt-5">
+            <div className="flex items-center gap-2 text-xs text-[#73868d]"><Volume2 size={14} /><span>Preview at a comfortable volume</span></div>
+            <span className="font-mono-label text-[9px] text-[#5f7379]" data-testid="text-duration">{formatTime(duration)}</span>
+          </div>
+        </section>
+        <section className="reveal reveal-delay-2">
+          <Controls amount={amount} onAmount={(value) => { setAmount(value); setActivePreset(null); }} activePreset={activePreset} onPreset={(value) => { setAmount(value); setActivePreset(value); }} onEnhance={onEnhance} isProcessing={isProcessing} hasProcessed={Boolean(processedUrl)} />
+          {processedUrl && !isProcessing && <button type="button" onClick={download} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#6fbbb7]/35 bg-[#6fbbb7]/[0.08] px-4 py-3.5 text-sm font-bold text-[#9ed4d0] transition hover:border-[#6fbbb7]/70 hover:bg-[#6fbbb7]/[0.13]" data-testid="button-download-enhanced"><Download size={17} /> Download enhanced WAV</button>}
+        </section>
+      </div>
+      <div className="reveal reveal-delay-3 mt-6 grid gap-3 sm:grid-cols-3">
+        {[
+          { icon: Zap, title: 'Made for movement', body: 'A low shelf and gentle compression add weight without muddying the mix.' },
+          { icon: Headphones, title: 'Trust your ears', body: 'Switch between the original and enhanced versions before you commit.' },
+          { icon: Download, title: 'Yours to keep', body: 'Export the result locally. Nothing leaves this listening booth.' },
+        ].map(({ icon: Icon, title, body }) => <div key={title} className="rounded-xl border border-[#afbec1]/10 bg-[#17232b]/50 p-4"><Icon size={16} className="text-[#e9a05d]" /><div className="mt-3 text-xs font-semibold text-[#dce5e1]">{title}</div><p className="mt-1 text-[11px] leading-5 text-[#71848a]">{body}</p></div>)}
+      </div>
+    </main>
+  );
+}
+
+function Home() {
+  const [file, setFile] = useState<File | null>(null);
+  const [status, setStatus] = useState<AppStatus>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [amount, setAmount] = useState(62);
+  const [activePreset, setActivePreset] = useState<number | null>(62);
+  const [processedUrl, setProcessedUrl] = useState<string>();
+  const objectUrl = useMemo(() => file ? URL.createObjectURL(file) : '', [file]);
+
+  useEffect(() => () => { if (objectUrl) URL.revokeObjectURL(objectUrl); }, [objectUrl]);
+
+  const chooseFile = (next?: File) => {
+    if (!next) return;
+    setError(null);
+    if (!next.name.toLowerCase().endsWith('.mp3') && next.type !== 'audio/mpeg' && next.type !== 'audio/mp3') {
+      setStatus('error');
+      setError('That file is not an MP3. Choose an MP3 to keep the booth focused.');
+      return;
+    }
+    if (next.size > 50 * 1024 * 1024) {
+      setStatus('error');
+      setError('This track is over 50 MB. Try a smaller MP3 for a quicker local preview.');
+      return;
+    }
+    if (processedUrl) URL.revokeObjectURL(processedUrl);
+    setProcessedUrl(undefined);
+    setAmount(62);
+    setActivePreset(62);
+    setFile(next);
+    setStatus('ready');
+  };
+
+  const enhance = async () => {
+    if (!file || status === 'processing') return;
+    setError(null);
+    setStatus('processing');
+    try {
+      const result = await enhanceAudio(file, amount);
+      if (processedUrl) URL.revokeObjectURL(processedUrl);
+      setProcessedUrl(URL.createObjectURL(result));
+      setStatus('ready');
+    } catch {
+      setStatus('ready');
+      setError('We could not decode that MP3 in this browser. Try another file or a shorter export.');
+    }
+  };
+
+  const reset = () => {
+    if (processedUrl) URL.revokeObjectURL(processedUrl);
+    setFile(null);
+    setProcessedUrl(undefined);
+    setStatus('idle');
+    setError(null);
+    setAmount(62);
+    setActivePreset(62);
+  };
+
+  const drop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setDragging(false);
+    chooseFile(event.dataTransfer.files?.[0]);
+  };
+
+  return (
+    <div className="app-shell min-h-[100dvh] text-[#f1ece0]">
+      <Header hasTrack={Boolean(file)} onReset={reset} />
+      {file && status !== 'error' ? <LoadedState file={file} originalUrl={objectUrl} processedUrl={processedUrl} amount={amount} setAmount={setAmount} activePreset={activePreset} setActivePreset={setActivePreset} status={status} error={error} onEnhance={enhance} onReset={reset} /> : <EmptyState onFile={chooseFile} error={error} isDragging={dragging} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop} />}
+      <footer className="mx-auto flex w-full max-w-[1180px] items-center justify-between border-t border-[#afbec1]/10 px-5 py-6 text-[10px] text-[#5e7178] sm:px-8 lg:px-10" data-testid="footer-main">
+        <span className="font-mono-label">BASSLINE / 2024</span>
+        <span className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-[#6fbbb7]" /> Local audio processing</span>
+      </footer>
+    </div>
+  );
+}
+
+function Router() {
+  return (
+    <RoutedErrorBoundary>
+      <Switch>
+        <Route path="/" component={Home} />
+        <Route component={NotFound} />
+      </Switch>
+    </RoutedErrorBoundary>
+  );
+}
+
+function RoutedErrorBoundary({ children }: { children: ReactNode }) {
+  const [location] = useLocation();
+  return <ErrorBoundary resetKey={location}>{children}</ErrorBoundary>;
+}
+
+function App() {
+  return (
+    <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+      <Router />
+    </WouterRouter>
+  );
+}
+
+export default App;

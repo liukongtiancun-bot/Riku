@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "MP3 Bass Booster"
+description = "A browser-based audio tool that lets users upload an MP3, automatically enhance its low frequencies, preview the result, and download the processed audio without uploading files to a server."
+version = "1.0.0"
+id = "artifacts/mp3-bass-booster"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22674
+
+[services.development]
+run = "pnpm --filter @workspace/mp3-bass-booster run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/mp3-bass-booster", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/mp3-bass-booster/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22674"
+BASE_PATH = "/"
