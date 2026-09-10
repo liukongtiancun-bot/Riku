@@ -58,7 +58,7 @@ function bufferToWav(buffer: AudioBuffer) {
   return new Blob([view], { type: 'audio/wav' });
 }
 
-async function enhanceAudio(file: File, amount: number) {
+async function enhanceAudio(file: File, amount: number, use8D: boolean) {
   const source = await file.arrayBuffer();
   const audioContext = new AudioContext();
   const decoded = await audioContext.decodeAudioData(source);
@@ -84,7 +84,19 @@ async function enhanceAudio(file: File, amount: number) {
   limiter.ratio.value = 20;
   limiter.attack.value = 0.003;
   limiter.release.value = 0.12;
-  bufferSource.connect(lowShelf).connect(compressor).connect(safetyGain).connect(limiter).connect(offline.destination);
+  const spatialPanner = offline.createStereoPanner();
+  if (use8D) {
+    const curveLength = 512;
+    const movementCycles = Math.max(1, Math.ceil(decoded.duration / 8));
+    const panCurve = new Float32Array(curveLength);
+    for (let index = 0; index < curveLength; index += 1) {
+      panCurve[index] = Math.sin((index / (curveLength - 1)) * Math.PI * 2 * movementCycles);
+    }
+    spatialPanner.pan.setValueCurveAtTime(panCurve, 0, decoded.duration);
+  } else {
+    spatialPanner.pan.value = 0;
+  }
+  bufferSource.connect(lowShelf).connect(compressor).connect(safetyGain).connect(spatialPanner).connect(limiter).connect(offline.destination);
   bufferSource.start();
   const rendered = await offline.startRendering();
   return bufferToWav(rendered);
@@ -265,11 +277,13 @@ function PlayerCard({ track, title, subtitle, src, duration, onPlay, isPlaying, 
   );
 }
 
-function Controls({ amount, onAmount, activePreset, onPreset, onEnhance, isProcessing, hasProcessed }: {
+function Controls({ amount, onAmount, activePreset, onPreset, use8D, onUse8D, onEnhance, isProcessing, hasProcessed }: {
   amount: number;
   onAmount: (amount: number) => void;
   activePreset: number | null;
   onPreset: (amount: number) => void;
+  use8D: boolean;
+  onUse8D: (enabled: boolean) => void;
   onEnhance: () => void;
   isProcessing: boolean;
   hasProcessed: boolean;
@@ -314,6 +328,19 @@ function Controls({ amount, onAmount, activePreset, onPreset, onEnhance, isProce
           ))}
         </div>
       </div>
+       <button
+         type="button"
+         onClick={() => onUse8D(!use8D)}
+         className={`mt-6 flex w-full items-center justify-between rounded-xl border px-3 py-3 text-left transition ${use8D ? 'border-[#6fbbb7]/70 bg-[#6fbbb7]/[0.11]' : 'border-[#afbec1]/10 bg-[#18242c] hover:border-[#6fbbb7]/40'}`}
+         aria-pressed={use8D}
+         data-testid="button-toggle-8d"
+       >
+         <span className="flex items-center gap-3">
+           <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${use8D ? 'bg-[#6fbbb7] text-[#17222a]' : 'bg-[#29414a] text-[#9ed4d0]'}`}><Headphones size={15} /></span>
+           <span><span className="block text-sm font-semibold text-[#dce5e1]">8D立体音響</span><span className="mt-0.5 block text-[10px] text-[#73868d]">音が左右をゆっくり移動します</span></span>
+         </span>
+         <span className={`rounded-full px-2 py-1 font-mono-label text-[9px] ${use8D ? 'bg-[#6fbbb7]/20 text-[#9ed4d0]' : 'bg-[#afbec1]/[0.08] text-[#73868d]'}`}>{use8D ? 'オン' : 'オフ'}</span>
+       </button>
       <button type="button" onClick={onEnhance} disabled={isProcessing} className="mt-7 flex w-full items-center justify-center gap-2 rounded-xl bg-[#e9a05d] px-4 py-3.5 text-sm font-bold text-[#17222a] transition hover:bg-[#f1b271] disabled:cursor-wait disabled:opacity-70" data-testid="button-enhance-audio">
          {isProcessing ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-[#17222a]/30 border-t-[#17222a]" /> 重低音を加工中…</> : <><Sparkles size={16} /> {hasProcessed ? 'この設定で再加工' : '重低音をつける'}</>}
       </button>
@@ -321,7 +348,7 @@ function Controls({ amount, onAmount, activePreset, onPreset, onEnhance, isProce
   );
 }
 
-function LoadedState({ file, originalUrl, processedUrl, amount, setAmount, activePreset, setActivePreset, status, error, onEnhance, onReset }: {
+function LoadedState({ file, originalUrl, processedUrl, amount, setAmount, activePreset, setActivePreset, use8D, setUse8D, status, error, onEnhance, onReset }: {
   file: File;
   originalUrl: string;
   processedUrl?: string;
@@ -329,6 +356,8 @@ function LoadedState({ file, originalUrl, processedUrl, amount, setAmount, activ
   setAmount: (amount: number) => void;
   activePreset: number | null;
   setActivePreset: (amount: number | null) => void;
+  use8D: boolean;
+  setUse8D: (enabled: boolean) => void;
   status: AppStatus;
   error: string | null;
   onEnhance: () => void;
@@ -421,7 +450,7 @@ function LoadedState({ file, originalUrl, processedUrl, amount, setAmount, activ
           <TrackWaveform progress={duration ? (time / duration) * 100 : 0} duration={duration} />
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
              <PlayerCard track="original" title="元の音源" subtitle="加工前の音" src={originalUrl} duration={duration} onPlay={() => togglePlay('original')} isPlaying={playing === 'original'} currentTime={playing === 'original' ? time : 0} onSeek={seek} />
-             <PlayerCard track="processed" title="重低音バージョン" subtitle={processedUrl ? `重低音 ${amount}%` : '加工すると試聴できます'} src={processedUrl} duration={duration} onPlay={() => togglePlay('processed')} isPlaying={playing === 'processed'} currentTime={playing === 'processed' ? time : 0} onSeek={seek} disabled={!processedUrl || isProcessing} />
+              <PlayerCard track="processed" title="重低音バージョン" subtitle={processedUrl ? `重低音 ${amount}%${use8D ? ' · 8D' : ''}` : '加工すると試聴できます'} src={processedUrl} duration={duration} onPlay={() => togglePlay('processed')} isPlaying={playing === 'processed'} currentTime={playing === 'processed' ? time : 0} onSeek={seek} disabled={!processedUrl || isProcessing} />
           </div>
           <div className="mt-6 flex items-center justify-between border-t border-[#afbec1]/10 pt-5">
              <div className="flex items-center gap-2 text-xs text-[#73868d]"><Volume2 size={14} /><span>無理のない音量で試聴してください</span></div>
@@ -429,7 +458,7 @@ function LoadedState({ file, originalUrl, processedUrl, amount, setAmount, activ
           </div>
         </section>
         <section className="reveal reveal-delay-2">
-          <Controls amount={amount} onAmount={(value) => { setAmount(value); setActivePreset(null); }} activePreset={activePreset} onPreset={(value) => { setAmount(value); setActivePreset(value); }} onEnhance={onEnhance} isProcessing={isProcessing} hasProcessed={Boolean(processedUrl)} />
+          <Controls amount={amount} onAmount={(value) => { setAmount(value); setActivePreset(null); }} activePreset={activePreset} onPreset={(value) => { setAmount(value); setActivePreset(value); }} use8D={use8D} onUse8D={setUse8D} onEnhance={onEnhance} isProcessing={isProcessing} hasProcessed={Boolean(processedUrl)} />
            {processedUrl && !isProcessing && <button type="button" onClick={download} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#6fbbb7]/35 bg-[#6fbbb7]/[0.08] px-4 py-3.5 text-sm font-bold text-[#9ed4d0] transition hover:border-[#6fbbb7]/70 hover:bg-[#6fbbb7]/[0.13]" data-testid="button-download-enhanced"><Download size={17} /> 加工済みWAVを保存</button>}
         </section>
       </div>
@@ -451,6 +480,7 @@ function Home() {
   const [dragging, setDragging] = useState(false);
   const [amount, setAmount] = useState(62);
   const [activePreset, setActivePreset] = useState<number | null>(62);
+  const [use8D, setUse8D] = useState(false);
   const [processedUrl, setProcessedUrl] = useState<string>();
   const objectUrl = useMemo(() => file ? URL.createObjectURL(file) : '', [file]);
 
@@ -473,6 +503,7 @@ function Home() {
     setProcessedUrl(undefined);
     setAmount(62);
     setActivePreset(62);
+    setUse8D(false);
     setFile(next);
     setStatus('ready');
   };
@@ -482,7 +513,7 @@ function Home() {
     setError(null);
     setStatus('processing');
     try {
-      const result = await enhanceAudio(file, amount);
+      const result = await enhanceAudio(file, amount, use8D);
       if (processedUrl) URL.revokeObjectURL(processedUrl);
       setProcessedUrl(URL.createObjectURL(result));
       setStatus('ready');
@@ -500,6 +531,7 @@ function Home() {
     setError(null);
     setAmount(62);
     setActivePreset(62);
+    setUse8D(false);
   };
 
   const drop = (event: DragEvent<HTMLDivElement>) => {
@@ -511,7 +543,7 @@ function Home() {
   return (
     <div className="app-shell min-h-[100dvh] text-[#f1ece0]">
       <Header hasTrack={Boolean(file)} onReset={reset} />
-      {file && status !== 'error' ? <LoadedState file={file} originalUrl={objectUrl} processedUrl={processedUrl} amount={amount} setAmount={setAmount} activePreset={activePreset} setActivePreset={setActivePreset} status={status} error={error} onEnhance={enhance} onReset={reset} /> : <EmptyState onFile={chooseFile} error={error} isDragging={dragging} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop} />}
+      {file && status !== 'error' ? <LoadedState file={file} originalUrl={objectUrl} processedUrl={processedUrl} amount={amount} setAmount={setAmount} activePreset={activePreset} setActivePreset={setActivePreset} use8D={use8D} setUse8D={setUse8D} status={status} error={error} onEnhance={enhance} onReset={reset} /> : <EmptyState onFile={chooseFile} error={error} isDragging={dragging} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop} />}
       <footer className="mx-auto flex w-full max-w-[1180px] items-center justify-between border-t border-[#afbec1]/10 px-5 py-6 text-[10px] text-[#5e7178] sm:px-8 lg:px-10" data-testid="footer-main">
          <span className="font-mono-label">BASSLINE / 2024</span>
          <span className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-[#6fbbb7]" /> 音声は端末内で処理</span>
