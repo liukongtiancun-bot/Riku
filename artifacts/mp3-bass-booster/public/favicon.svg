@@ -1,3 +1,21 @@
 <svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
-<rect width="180" height="180" rx="36" fill="#FF3C00"/>
+  <defs>
+    <linearGradient id="red" x1="20" y1="18" x2="160" y2="166" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF5A5F"/>
+      <stop offset="0.52" stop-color="#E11D3E"/>
+      <stop offset="1" stop-color="#A80F32"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="7" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="180" height="180" rx="42" fill="#170D16"/>
+  <circle cx="90" cy="90" r="65" fill="url(#red)" filter="url(#glow)"/>
+  <circle cx="90" cy="90" r="54" fill="#C7193D"/>
+  <path d="M53 101V79M65 116V64M77 105V75M90 124V56M103 105V75M115 116V64M127 101V79" stroke="#FFF5F4" stroke-width="9" stroke-linecap="round"/>
+  <path d="M45 90H135" stroke="#FFB4B5" stroke-opacity=".35" stroke-width="2" stroke-linecap="round"/>
 </svg>
