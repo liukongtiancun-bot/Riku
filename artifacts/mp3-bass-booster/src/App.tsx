@@ -1,5 +1,5 @@
 import { type ChangeEvent, type CSSProperties, type DragEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { AudioLines, Check, CircleAlert, Download, FileAudio, Headphones, Pause, Play, RotateCcw, ShieldCheck, Sparkles, Upload, Volume2, X, Zap } from 'lucide-react';
+import { AudioLines, Check, CircleAlert, Copy, Download, ExternalLink, FileAudio, Headphones, Pause, Play, RotateCcw, Share2, ShieldCheck, Sparkles, Upload, Volume2, X, Zap } from 'lucide-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
@@ -25,6 +25,14 @@ function formatTime(seconds: number) {
 function formatBytes(bytes: number) {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getSharePageUrl(objectPath: string, fileName: string) {
+  const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
+  const url = new URL(`${base}share`, window.location.origin);
+  url.searchParams.set('file', objectPath);
+  url.searchParams.set('name', fileName);
+  return url.toString();
 }
 
 function bufferToWav(buffer: AudioBuffer) {
@@ -380,7 +388,7 @@ function Controls({ amount, onAmount, activePreset, onPreset, use8D, onUse8D, cl
   );
 }
 
-function LoadedState({ file, originalUrl, processedUrl, amount, setAmount, activePreset, setActivePreset, use8D, setUse8D, cleanAudio, setCleanAudio, status, error, onEnhance, onReset }: {
+function LoadedState({ file, originalUrl, processedUrl, amount, setAmount, activePreset, setActivePreset, use8D, setUse8D, cleanAudio, setCleanAudio, status, error, shareUrl, isSharing, shareError, onEnhance, onShare, onReset }: {
   file: File;
   originalUrl: string;
   processedUrl?: string;
@@ -394,7 +402,11 @@ function LoadedState({ file, originalUrl, processedUrl, amount, setAmount, activ
   setCleanAudio: (enabled: boolean) => void;
   status: AppStatus;
   error: string | null;
+  shareUrl?: string;
+  isSharing: boolean;
+  shareError: string | null;
   onEnhance: () => void;
+  onShare: () => void;
   onReset: () => void;
 }) {
   const [duration, setDuration] = useState(0);
@@ -486,14 +498,24 @@ function LoadedState({ file, originalUrl, processedUrl, amount, setAmount, activ
              <PlayerCard track="original" title="元の音源" subtitle="加工前の音" src={originalUrl} duration={duration} onPlay={() => togglePlay('original')} isPlaying={playing === 'original'} currentTime={playing === 'original' ? time : 0} onSeek={seek} />
              <PlayerCard track="processed" title="加工済みバージョン" subtitle={processedUrl ? `重低音 ${amount}%${cleanAudio ? ' · 音質調整' : ''}${use8D ? ' · 8D' : ''}` : '加工すると試聴できます'} src={processedUrl} duration={duration} onPlay={() => togglePlay('processed')} isPlaying={playing === 'processed'} currentTime={playing === 'processed' ? time : 0} onSeek={seek} disabled={!processedUrl || isProcessing} />
           </div>
-          <div className="mt-6 flex items-center justify-between border-t border-[#afbec1]/10 pt-5">
-             <div className="flex items-center gap-2 text-xs text-[#73868d]"><Volume2 size={14} /><span>無理のない音量で試聴してください</span></div>
+           <div className="mt-6 flex items-center justify-between border-t border-[#afbec1]/10 pt-5">
+              <div className="flex items-center gap-2 text-xs text-[#73868d]"><Volume2 size={14} /><span>無理のない音量で試聴してください</span></div>
             <span className="font-mono-label text-[9px] text-[#5f7379]" data-testid="text-duration">{formatTime(duration)}</span>
           </div>
         </section>
         <section className="reveal reveal-delay-2">
            <Controls amount={amount} onAmount={(value) => { setAmount(value); setActivePreset(null); }} activePreset={activePreset} onPreset={(value) => { setAmount(value); setActivePreset(value); }} use8D={use8D} onUse8D={setUse8D} cleanAudio={cleanAudio} onCleanAudio={setCleanAudio} onEnhance={onEnhance} isProcessing={isProcessing} hasProcessed={Boolean(processedUrl)} />
-           {processedUrl && !isProcessing && <button type="button" onClick={download} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#6fbbb7]/35 bg-[#6fbbb7]/[0.08] px-4 py-3.5 text-sm font-bold text-[#9ed4d0] transition hover:border-[#6fbbb7]/70 hover:bg-[#6fbbb7]/[0.13]" data-testid="button-download-enhanced"><Download size={17} /> 加工済みWAVを保存</button>}
+            {processedUrl && !isProcessing && <button type="button" onClick={download} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#6fbbb7]/35 bg-[#6fbbb7]/[0.08] px-4 py-3.5 text-sm font-bold text-[#9ed4d0] transition hover:border-[#6fbbb7]/70 hover:bg-[#6fbbb7]/[0.13]" data-testid="button-download-enhanced"><Download size={17} /> 加工済みWAVを保存</button>}
+            {processedUrl && !isProcessing && <button type="button" onClick={onShare} disabled={isSharing} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#e9a05d]/35 bg-[#e9a05d]/[0.08] px-4 py-3.5 text-sm font-bold text-[#f0bd88] transition hover:border-[#e9a05d]/70 hover:bg-[#e9a05d]/[0.13] disabled:cursor-wait disabled:opacity-70" data-testid="button-share-enhanced"><Share2 size={17} /> {isSharing ? '共有リンクを作成中…' : '共有リンクを作成'}</button>}
+            {shareUrl && !isSharing && <div className="mt-3 rounded-xl border border-[#6fbbb7]/25 bg-[#172d30]/50 p-3" data-testid="panel-share-link">
+              <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold text-[#9ed4d0]"><Check size={13} /> このリンクを送ると誰でも聴けます</div>
+              <div className="flex gap-2">
+                <input readOnly value={shareUrl} aria-label="共有リンク" className="min-w-0 flex-1 rounded-lg border border-[#afbec1]/10 bg-[#17232b] px-2.5 py-2 text-[10px] text-[#9aabad] outline-none" data-testid="input-share-link" />
+                <button type="button" onClick={() => void navigator.clipboard?.writeText(shareUrl)} className="flex shrink-0 items-center gap-1 rounded-lg bg-[#6fbbb7]/15 px-2.5 py-2 text-[10px] font-semibold text-[#9ed4d0] transition hover:bg-[#6fbbb7]/25" data-testid="button-copy-share-link"><Copy size={13} /> コピー</button>
+              </div>
+              <a href={shareUrl} target="_blank" rel="noreferrer" className="mt-2 flex items-center gap-1 text-[10px] text-[#829399] hover:text-[#dce5e1]"><ExternalLink size={12} /> 共有ページを開く</a>
+            </div>}
+            {shareError && <p className="mt-3 text-xs leading-5 text-[#e6a293]" role="alert" data-testid="text-share-error">{shareError}</p>}
         </section>
       </div>
       <div className="reveal reveal-delay-3 mt-6 grid gap-3 sm:grid-cols-3">
@@ -517,6 +539,9 @@ function Home() {
   const [use8D, setUse8D] = useState(false);
   const [cleanAudio, setCleanAudio] = useState(false);
   const [processedUrl, setProcessedUrl] = useState<string>();
+  const [shareUrl, setShareUrl] = useState<string>();
+  const [isSharing, setIsSharing] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
   const objectUrl = useMemo(() => file ? URL.createObjectURL(file) : '', [file]);
 
   useEffect(() => () => { if (objectUrl) URL.revokeObjectURL(objectUrl); }, [objectUrl]);
@@ -536,6 +561,8 @@ function Home() {
     }
     if (processedUrl) URL.revokeObjectURL(processedUrl);
     setProcessedUrl(undefined);
+    setShareUrl(undefined);
+    setShareError(null);
     setAmount(62);
     setActivePreset(62);
     setUse8D(false);
@@ -552,6 +579,8 @@ function Home() {
       const result = await enhanceAudio(file, amount, use8D, cleanAudio);
       if (processedUrl) URL.revokeObjectURL(processedUrl);
       setProcessedUrl(URL.createObjectURL(result));
+      setShareUrl(undefined);
+      setShareError(null);
       setStatus('ready');
     } catch {
       setStatus('ready');
@@ -559,10 +588,40 @@ function Home() {
     }
   };
 
+  const share = async () => {
+    if (!processedUrl || isSharing) return;
+    setIsSharing(true);
+    setShareError(null);
+    try {
+      const audioResponse = await fetch(processedUrl);
+      const audioBlob = await audioResponse.blob();
+      const response = await fetch('/api/storage/shares/request-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: `${file?.name.replace(/\.[^/.]+$/, '') || 'bassline'}.wav`, size: audioBlob.size, contentType: 'audio/wav' }),
+      });
+      if (!response.ok) throw new Error('request');
+      const { uploadURL, objectPath } = await response.json() as { uploadURL: string; objectPath: string };
+      const upload = await fetch(uploadURL, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'audio/wav' },
+        body: audioBlob,
+      });
+      if (!upload.ok) throw new Error('upload');
+      setShareUrl(getSharePageUrl(objectPath, `${file?.name.replace(/\.[^/.]+$/, '') || 'bassline'}（加工済み）`));
+    } catch {
+      setShareError('共有リンクを作成できませんでした。時間をおいて、もう一度お試しください。');
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
   const reset = () => {
     if (processedUrl) URL.revokeObjectURL(processedUrl);
     setFile(null);
     setProcessedUrl(undefined);
+    setShareUrl(undefined);
+    setShareError(null);
     setStatus('idle');
     setError(null);
     setAmount(62);
@@ -580,10 +639,10 @@ function Home() {
   return (
     <div className="app-shell min-h-[100dvh] text-[#f1ece0]">
       <Header hasTrack={Boolean(file)} onReset={reset} />
-       {file && status !== 'error' ? <LoadedState file={file} originalUrl={objectUrl} processedUrl={processedUrl} amount={amount} setAmount={setAmount} activePreset={activePreset} setActivePreset={setActivePreset} use8D={use8D} setUse8D={setUse8D} cleanAudio={cleanAudio} setCleanAudio={setCleanAudio} status={status} error={error} onEnhance={enhance} onReset={reset} /> : <EmptyState onFile={chooseFile} error={error} isDragging={dragging} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop} />}
+       {file && status !== 'error' ? <LoadedState file={file} originalUrl={objectUrl} processedUrl={processedUrl} amount={amount} setAmount={setAmount} activePreset={activePreset} setActivePreset={setActivePreset} use8D={use8D} setUse8D={setUse8D} cleanAudio={cleanAudio} setCleanAudio={setCleanAudio} status={status} error={error} shareUrl={shareUrl} isSharing={isSharing} shareError={shareError} onEnhance={enhance} onShare={share} onReset={reset} /> : <EmptyState onFile={chooseFile} error={error} isDragging={dragging} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop} />}
       <footer className="mx-auto flex w-full max-w-[1180px] items-center justify-between border-t border-[#afbec1]/10 px-5 py-6 text-[10px] text-[#5e7178] sm:px-8 lg:px-10" data-testid="footer-main">
          <span className="font-mono-label">BASSLINE / 2024</span>
-         <span className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-[#6fbbb7]" /> 音声は端末内で処理</span>
+          <span className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-[#6fbbb7]" /> 音声は端末内で処理 · 共有時のみ保存</span>
       </footer>
     </div>
   );
@@ -594,9 +653,27 @@ function Router() {
     <RoutedErrorBoundary>
       <Switch>
         <Route path="/" component={Home} />
+        <Route path="/share" component={SharedTrackPage} />
         <Route component={NotFound} />
       </Switch>
     </RoutedErrorBoundary>
+  );
+}
+
+function SharedTrackPage() {
+  const params = new URLSearchParams(window.location.search);
+  const objectPath = params.get('file');
+  const title = params.get('name') || '加工済みの音源';
+  const isValidPath = Boolean(objectPath && /^\/objects\/uploads\/[a-z0-9-]+$/i.test(objectPath));
+  const audioUrl = isValidPath ? `/api/storage${objectPath}` : '';
+
+  return (
+    <main className="mx-auto flex min-h-[calc(100dvh-150px)] w-full max-w-[760px] items-center justify-center px-5 py-12 sm:px-8">
+      <section className="soft-card w-full rounded-[1.75rem] p-6 sm:p-10" data-testid="page-shared-track">
+        <div className="mb-8 flex items-center gap-3"><div className="brand-mark flex h-10 w-10 items-center justify-center rounded-xl bg-[#e9a05d] text-[#152029]"><AudioLines size={21} strokeWidth={2.5} /></div><div><div className="font-mono-label text-[10px] font-bold tracking-[0.2em] text-[#efa960]">BASSLINE</div><div className="text-[11px] text-[#87979c]">共有音源</div></div></div>
+        {isValidPath ? <><div className="mb-2 font-mono-label text-[10px] font-bold text-[#6fbbb7]">SHARED AUDIO</div><h1 className="break-words text-3xl font-semibold tracking-[-0.04em] text-[#f1ece0] sm:text-4xl" data-testid="heading-shared-track">{title}</h1><p className="mt-3 text-sm leading-6 text-[#829399]">この音源はBASSLINEで加工されました。再生ボタンからお聴きください。</p><div className="mt-8 rounded-2xl border border-[#e9a05d]/25 bg-[#17232b] p-5"><audio controls autoPlay={false} src={audioUrl} className="w-full" data-testid="audio-shared-track"><track kind="captions" /></audio></div><p className="mt-5 text-center text-xs text-[#64777e]">音源を共有してくれた人が作成したリンクです</p></> : <><div className="mb-2 font-mono-label text-[10px] font-bold text-[#d97962]">LINK ERROR</div><h1 className="text-3xl font-semibold text-[#f1ece0]">共有音源が見つかりません</h1><p className="mt-3 text-sm leading-6 text-[#829399]">リンクが正しくないか、音源が削除されています。</p></>}
+      </section>
+    </main>
   );
 }
 

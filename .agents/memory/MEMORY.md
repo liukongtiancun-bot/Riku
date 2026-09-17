@@ -1,0 +1,1 @@
+- [API codegen naming](api-codegen-naming.md) — generated runtime validators are operation-id-based, not always schema-name-based.

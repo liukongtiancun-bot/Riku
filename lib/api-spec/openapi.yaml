@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: sharing
+    description: Public audio sharing
 paths:
   /healthz:
     get:
@@ -24,6 +26,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /storage/shares/request-url:
+    post:
+      operationId: requestShareUploadUrl
+      tags: [sharing]
+      summary: Request a public audio upload URL
+      description: Returns a short-lived upload URL for a processed WAV file.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShareUploadRequest"
+      responses:
+        "201":
+          description: Upload URL created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShareUploadResponse"
+        "400":
+          description: Invalid audio metadata
+        "500":
+          description: Unable to create upload URL
 components:
   schemas:
     HealthStatus:
@@ -33,4 +58,33 @@ components:
           type: string
       required:
         - status
+    ShareUploadRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        size:
+          type: integer
+          minimum: 1
+          maximum: 52428800
+        contentType:
+          type: string
+      required:
+        - name
+        - size
+        - contentType
+    ShareUploadResponse:
+      type: object
+      properties:
+        uploadURL:
+          type: string
+          format: uri
+        objectPath:
+          type: string
+        expiresInSeconds:
+          type: integer
+      required:
+        - uploadURL
+        - objectPath
+        - expiresInSeconds
 

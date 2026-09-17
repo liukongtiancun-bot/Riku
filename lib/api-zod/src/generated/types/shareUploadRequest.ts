@@ -5,9 +5,6 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-export interface HealthStatus {
-  status: string;
-}
 
 export interface ShareUploadRequest {
   name: string;
@@ -18,10 +15,3 @@ export interface ShareUploadRequest {
   size: number;
   contentType: string;
 }
-
-export interface ShareUploadResponse {
-  uploadURL: string;
-  objectPath: string;
-  expiresInSeconds: number;
-}
-

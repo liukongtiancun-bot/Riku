@@ -5,23 +5,9 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-export interface HealthStatus {
-  status: string;
-}
-
-export interface ShareUploadRequest {
-  name: string;
-  /**
-     * @minimum 1
-     * @maximum 52428800
-     */
-  size: number;
-  contentType: string;
-}
 
 export interface ShareUploadResponse {
   uploadURL: string;
   objectPath: string;
   expiresInSeconds: number;
 }
-
