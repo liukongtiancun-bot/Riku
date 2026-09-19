@@ -38,3 +38,66 @@ export const RequestShareUploadUrlResponse = zod.object({
 })
 
 
+/**
+ * Returns all processed audio tracks that have been published for public listening.
+ * @summary List publicly shared processed audio
+ */
+export const ListSharedAudioResponseItem = zod.object({
+  "id": zod.string().uuid(),
+  "title": zod.string(),
+  "fileName": zod.string(),
+  "objectPath": zod.string(),
+  "fileSize": zod.number().int(),
+  "amount": zod.number().int(),
+  "semitones": zod.number().int(),
+  "use8D": zod.boolean(),
+  "cleanAudio": zod.boolean(),
+  "createdAt": zod.coerce.date()
+})
+export const ListSharedAudioResponse = zod.array(ListSharedAudioResponseItem)
+
+
+/**
+ * Registers an uploaded processed WAV file in the public audio library.
+ * @summary Publish processed audio
+ */
+export const createSharedAudioBodyTitleMax = 120;
+
+export const createSharedAudioBodyFileNameMax = 255;
+
+export const createSharedAudioBodyObjectPathRegExp = new RegExp('^/objects/uploads/[a-z0-9-]+$');
+export const createSharedAudioBodyFileSizeMax = 52428800;
+
+export const createSharedAudioBodyAmountMin = 0;
+export const createSharedAudioBodyAmountMax = 100;
+
+export const createSharedAudioBodySemitonesMin = -12;
+export const createSharedAudioBodySemitonesMax = 12;
+
+
+
+export const CreateSharedAudioBody = zod.object({
+  "title": zod.string().min(1).max(createSharedAudioBodyTitleMax),
+  "fileName": zod.string().min(1).max(createSharedAudioBodyFileNameMax),
+  "objectPath": zod.string().regex(createSharedAudioBodyObjectPathRegExp),
+  "fileSize": zod.number().int().min(1).max(createSharedAudioBodyFileSizeMax),
+  "amount": zod.number().int().min(createSharedAudioBodyAmountMin).max(createSharedAudioBodyAmountMax),
+  "semitones": zod.number().int().min(createSharedAudioBodySemitonesMin).max(createSharedAudioBodySemitonesMax),
+  "use8D": zod.boolean(),
+  "cleanAudio": zod.boolean()
+})
+
+export const CreateSharedAudioResponse = zod.object({
+  "id": zod.string().uuid(),
+  "title": zod.string(),
+  "fileName": zod.string(),
+  "objectPath": zod.string(),
+  "fileSize": zod.number().int(),
+  "amount": zod.number().int(),
+  "semitones": zod.number().int(),
+  "use8D": zod.boolean(),
+  "cleanAudio": zod.boolean(),
+  "createdAt": zod.coerce.date()
+})
+
+

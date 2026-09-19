@@ -7,5 +7,7 @@
  */
 
 export * from './healthStatus';
+export * from './sharedAudio';
+export * from './sharedAudioInput';
 export * from './shareUploadRequest';
 export * from './shareUploadResponse';

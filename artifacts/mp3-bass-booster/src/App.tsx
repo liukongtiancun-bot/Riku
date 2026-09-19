@@ -1,8 +1,9 @@
-import { type ChangeEvent, type CSSProperties, type DragEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { AudioLines, Check, CircleAlert, Copy, Download, ExternalLink, FileAudio, Headphones, Pause, Play, RotateCcw, Share2, ShieldCheck, Sparkles, Upload, Volume2, X, Zap } from 'lucide-react';
+import { createContext, type ChangeEvent, type CSSProperties, type DragEvent, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AudioLines, Check, CircleAlert, Copy, Download, ExternalLink, FileAudio, Headphones, ListMusic, Pause, Play, Repeat2, RotateCcw, Share2, ShieldCheck, Sparkles, Upload, Volume2, X, Zap } from 'lucide-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
+import type { SharedAudio } from '@workspace/api-client-react';
 
 type Track = 'original' | 'processed';
 type AppStatus = 'idle' | 'ready' | 'processing' | 'error';
@@ -38,6 +39,10 @@ function getSharePageUrl(objectPath: string, fileName: string) {
   url.searchParams.set('file', objectPath);
   url.searchParams.set('name', fileName);
   return url.toString();
+}
+
+function getSharedAudioUrl(objectPath: string) {
+  return `/api/storage${objectPath}`;
 }
 
 function bufferToWav(buffer: AudioBuffer) {
@@ -311,6 +316,251 @@ function PlayerCard({ track, title, subtitle, src, duration, onPlay, isPlaying, 
   );
 }
 
+type AudioPlaybackContextValue = {
+  currentTrack: SharedAudio | null;
+  isPlaying: boolean;
+  currentTime: number;
+  duration: number;
+  repeat: boolean;
+  playTrack: (track: SharedAudio) => Promise<void>;
+  seek: (value: number) => void;
+  setRepeat: (repeat: boolean) => void;
+  stop: () => void;
+};
+
+const AudioPlaybackContext = createContext<AudioPlaybackContextValue | null>(null);
+
+function useSharedAudioPlayback() {
+  const context = useContext(AudioPlaybackContext);
+  if (!context) {
+    throw new Error('Shared audio playback must be used inside its provider');
+  }
+  return context;
+}
+
+function SharedAudioPlaybackProvider({ children }: { children: ReactNode }) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [currentTrack, setCurrentTrack] = useState<SharedAudio | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [repeat, setRepeat] = useState(false);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const handleTimeUpdate = () => setCurrentTime(audio.currentTime || 0);
+    const handleMetadata = () => setDuration(audio.duration || 0);
+    const handlePlay = () => setIsPlaying(true);
+    const handlePause = () => setIsPlaying(false);
+    const handleEnded = () => {
+      setIsPlaying(false);
+      setCurrentTime(0);
+    };
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('loadedmetadata', handleMetadata);
+    audio.addEventListener('play', handlePlay);
+    audio.addEventListener('pause', handlePause);
+    audio.addEventListener('ended', handleEnded);
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('loadedmetadata', handleMetadata);
+      audio.removeEventListener('play', handlePlay);
+      audio.removeEventListener('pause', handlePause);
+      audio.removeEventListener('ended', handleEnded);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.loop = repeat;
+  }, [repeat]);
+
+  const playTrack = useCallback(async (track: SharedAudio) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const isSameTrack = currentTrack?.id === track.id;
+    if (isSameTrack && !audio.paused) {
+      audio.pause();
+      return;
+    }
+    if (!isSameTrack) {
+      audio.src = getSharedAudioUrl(track.objectPath);
+      audio.load();
+      setCurrentTrack(track);
+      setCurrentTime(0);
+      setDuration(0);
+    }
+    try {
+      await audio.play();
+      setIsPlaying(true);
+    } catch {
+      setIsPlaying(false);
+    }
+  }, [currentTrack?.id]);
+
+  const seek = useCallback((value: number) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.currentTime = Math.min(Math.max(value, 0), audio.duration || value);
+    setCurrentTime(audio.currentTime);
+  }, []);
+
+  const stop = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    setCurrentTrack(null);
+    setCurrentTime(0);
+    setDuration(0);
+  }, []);
+
+  useEffect(() => {
+    if (!currentTrack || typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    const mediaSession = navigator.mediaSession;
+    mediaSession.metadata = new MediaMetadata({
+      title: currentTrack.title,
+      artist: 'BASSLINE 公開音源',
+      album: 'みんなの編集済み音源',
+    });
+    const audio = audioRef.current;
+    const setAction = (action: MediaSessionAction, handler: MediaSessionActionHandler) => {
+      try {
+        mediaSession.setActionHandler(action, handler);
+      } catch {
+        // Some browsers expose Media Session but do not support every action.
+      }
+    };
+    setAction('play', () => { void audio?.play(); });
+    setAction('pause', () => audio?.pause());
+    setAction('seekbackward', (details) => seek(Math.max(0, (audio?.currentTime || 0) - (details.seekOffset || 10))));
+    setAction('seekforward', (details) => seek((audio?.currentTime || 0) + (details.seekOffset || 10)));
+    return () => {
+      try {
+        mediaSession.metadata = null;
+        mediaSession.setActionHandler('play', null);
+        mediaSession.setActionHandler('pause', null);
+        mediaSession.setActionHandler('seekbackward', null);
+        mediaSession.setActionHandler('seekforward', null);
+      } catch {
+        // Ignore cleanup errors from unsupported Media Session actions.
+      }
+    };
+  }, [currentTrack, seek]);
+
+  const value = useMemo(() => ({
+    currentTrack,
+    isPlaying,
+    currentTime,
+    duration,
+    repeat,
+    playTrack,
+    seek,
+    setRepeat,
+    stop,
+  }), [currentTrack, currentTime, duration, isPlaying, playTrack, repeat, seek, stop]);
+
+  return (
+    <AudioPlaybackContext.Provider value={value}>
+      <audio ref={audioRef} preload="metadata" playsInline className="hidden" aria-hidden="true" />
+      {children}
+    </AudioPlaybackContext.Provider>
+  );
+}
+
+function GlobalSharedAudioPlayer() {
+  const { currentTrack, isPlaying, currentTime, duration, repeat, playTrack, seek, setRepeat, stop } = useSharedAudioPlayback();
+  if (!currentTrack) return null;
+  const progress = duration ? (currentTime / duration) * 100 : 0;
+  return (
+    <aside className="fixed inset-x-0 bottom-0 z-50 border-t border-[#e9a05d]/25 bg-[#111b22]/[0.97] px-4 py-3 shadow-[0_-12px_40px_rgba(0,0,0,0.28)] backdrop-blur-xl" data-testid="global-audio-player">
+      <div className="mx-auto flex w-full max-w-[1180px] items-center gap-3">
+        <button type="button" onClick={() => void playTrack(currentTrack)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#e9a05d] text-[#17222a] transition hover:scale-105" aria-label={isPlaying ? '一時停止' : '再生'} data-testid="button-global-play">
+          {isPlaying ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
+        </button>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-xs font-semibold text-[#f1ece0]">{currentTrack.title}</div>
+          <input type="range" min="0" max={duration || 1} step="0.1" value={Math.min(currentTime, duration || 1)} onChange={(event) => seek(Number(event.target.value))} className="audio-progress mt-1.5 w-full" style={{ '--progress': `${progress}%` } as CSSProperties} aria-label="再生位置" />
+        </div>
+        <span className="hidden font-mono-label text-[9px] text-[#73868d] sm:inline">{formatTime(currentTime)} / {formatTime(duration)}</span>
+        <button type="button" onClick={() => setRepeat(!repeat)} className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition ${repeat ? 'bg-[#6fbbb7]/20 text-[#9ed4d0]' : 'bg-[#afbec1]/[0.08] text-[#829399] hover:text-[#f1ece0]'}`} aria-pressed={repeat} aria-label="リピート再生" data-testid="button-global-repeat">
+          <Repeat2 size={16} />
+        </button>
+        <button type="button" onClick={stop} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[#73868d] transition hover:bg-[#afbec1]/[0.08] hover:text-[#f1ece0]" aria-label="プレイヤーを閉じる" data-testid="button-global-stop">
+          <X size={16} />
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+function SharedAudioLibrary({ refreshToken }: { refreshToken: number }) {
+  const [tracks, setTracks] = useState<SharedAudio[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { currentTrack, isPlaying, playTrack } = useSharedAudioPlayback();
+
+  const loadTracks = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/storage/tracks');
+      if (!response.ok) throw new Error('list');
+      const data = await response.json() as SharedAudio[];
+      setTracks(data);
+      setError(null);
+    } catch {
+      setError('公開音源を読み込めませんでした。');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadTracks();
+  }, [loadTracks, refreshToken]);
+
+  return (
+    <section className="mx-auto w-full max-w-[1180px] px-5 pb-28 pt-5 sm:px-8 lg:px-10" data-testid="section-shared-audio-library">
+      <div className="soft-card rounded-[1.5rem] p-5 sm:p-7">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="font-mono-label text-[10px] font-bold text-[#6fbbb7]">PUBLIC AUDIO LIBRARY</div>
+            <h2 className="mt-2 text-xl font-semibold text-[#f1ece0]">みんなの編集済み音源</h2>
+            <p className="mt-2 text-sm leading-6 text-[#829399]">公開された音源を、画面を閉じずにバックグラウンドで聴けます。</p>
+          </div>
+          <ListMusic size={21} className="shrink-0 text-[#e9a05d]" />
+        </div>
+        {isLoading && <div className="mt-6 rounded-xl border border-[#afbec1]/10 bg-[#17232b]/60 px-4 py-5 text-sm text-[#829399]">公開音源を読み込み中…</div>}
+        {!isLoading && error && <div className="mt-6 rounded-xl border border-[#d97962]/30 bg-[#d97962]/[0.08] px-4 py-5 text-sm text-[#e6a293]" role="alert">{error}</div>}
+        {!isLoading && !error && tracks.length === 0 && <div className="mt-6 rounded-xl border border-dashed border-[#afbec1]/15 bg-[#17232b]/45 px-4 py-8 text-center text-sm text-[#829399]">まだ公開された音源はありません。加工後に「公開して一覧に追加」から追加できます。</div>}
+        {!isLoading && !error && tracks.length > 0 && (
+          <div className="mt-6 grid gap-3 md:grid-cols-2">
+            {tracks.map((track) => {
+              const isCurrent = currentTrack?.id === track.id;
+              return (
+                <article key={track.id} className={`rounded-xl border p-4 transition ${isCurrent ? 'border-[#e9a05d]/50 bg-[#e9a05d]/[0.07]' : 'border-[#afbec1]/10 bg-[#17232b]/55 hover:border-[#afbec1]/25'}`}>
+                  <div className="flex items-start gap-3">
+                    <button type="button" onClick={() => void playTrack(track)} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition hover:scale-105 ${isCurrent ? 'bg-[#e9a05d] text-[#17222a]' : 'bg-[#29414a] text-[#d4e1df]'}`} aria-label={`${track.title}を${isCurrent && isPlaying ? '一時停止' : '再生'}`} data-testid={`button-play-shared-${track.id}`}>
+                      {isCurrent && isPlaying ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" />}
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold text-[#f1ece0]">{track.title}</div>
+                      <div className="mt-1 text-[10px] leading-5 text-[#829399]">重低音 {track.amount}% · キー {formatSemitones(track.semitones)}{track.cleanAudio ? ' · 音質調整' : ''}{track.use8D ? ' · 8D' : ''}</div>
+                      <div className="mt-1 font-mono-label text-[9px] text-[#5f7379]">{new Date(track.createdAt).toLocaleDateString('ja-JP')} · {formatBytes(track.fileSize)}</div>
+                    </div>
+                  </div>
+                  <a href={getSharePageUrl(track.objectPath, track.title)} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-[10px] text-[#829399] hover:text-[#dce5e1]"><ExternalLink size={12} /> 共有ページを開く</a>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function Controls({ amount, onAmount, activePreset, onPreset, semitones, onSemitones, use8D, onUse8D, cleanAudio, onCleanAudio, onEnhance, isProcessing, hasProcessed }: {
   amount: number;
   onAmount: (amount: number) => void;
@@ -447,27 +697,28 @@ function LoadedState({ file, originalUrl, processedUrl, amount, setAmount, activ
     processedAudio.current = processed;
     const handleMetadata = () => setDuration(original.duration || 0);
     const handleProcessedMetadata = () => setProcessedDuration(processed?.duration || 0);
-    const handleTime = () => setTime((playing === 'processed' ? processed : original)?.currentTime || 0);
+     const handleOriginalTime = () => setTime(original.currentTime || 0);
+     const handleProcessedTime = () => setTime(processed?.currentTime || 0);
     const handleEnded = () => { setPlaying(null); setTime(0); };
     original.addEventListener('loadedmetadata', handleMetadata);
-    original.addEventListener('timeupdate', handleTime);
+     original.addEventListener('timeupdate', handleOriginalTime);
     original.addEventListener('ended', handleEnded);
     if (processed) {
       processed.addEventListener('loadedmetadata', handleProcessedMetadata);
-      processed.addEventListener('timeupdate', handleTime);
+       processed.addEventListener('timeupdate', handleProcessedTime);
       processed.addEventListener('ended', handleEnded);
     }
     return () => {
       original.pause();
       processed?.pause();
       original.removeEventListener('loadedmetadata', handleMetadata);
-      original.removeEventListener('timeupdate', handleTime);
+       original.removeEventListener('timeupdate', handleOriginalTime);
       original.removeEventListener('ended', handleEnded);
-      processed?.removeEventListener('timeupdate', handleTime);
+       processed?.removeEventListener('timeupdate', handleProcessedTime);
       processed?.removeEventListener('ended', handleEnded);
       processed?.removeEventListener('loadedmetadata', handleProcessedMetadata);
     };
-  }, [originalUrl, processedUrl, playing]);
+   }, [originalUrl, processedUrl]);
 
   const togglePlay = (track: Track) => {
     const audio = track === 'original' ? originalAudio.current : processedAudio.current;
@@ -535,7 +786,7 @@ function LoadedState({ file, originalUrl, processedUrl, amount, setAmount, activ
         <section className="reveal reveal-delay-2">
             <Controls amount={amount} onAmount={(value) => { setAmount(value); setActivePreset(null); }} activePreset={activePreset} onPreset={(value) => { setAmount(value); setActivePreset(value); }} semitones={semitones} onSemitones={setSemitones} use8D={use8D} onUse8D={setUse8D} cleanAudio={cleanAudio} onCleanAudio={setCleanAudio} onEnhance={onEnhance} isProcessing={isProcessing} hasProcessed={Boolean(processedUrl)} />
             {processedUrl && !isProcessing && <button type="button" onClick={download} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#6fbbb7]/35 bg-[#6fbbb7]/[0.08] px-4 py-3.5 text-sm font-bold text-[#9ed4d0] transition hover:border-[#6fbbb7]/70 hover:bg-[#6fbbb7]/[0.13]" data-testid="button-download-enhanced"><Download size={17} /> 加工済みWAVを保存</button>}
-            {processedUrl && !isProcessing && <button type="button" onClick={onShare} disabled={isSharing} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#e9a05d]/35 bg-[#e9a05d]/[0.08] px-4 py-3.5 text-sm font-bold text-[#f0bd88] transition hover:border-[#e9a05d]/70 hover:bg-[#e9a05d]/[0.13] disabled:cursor-wait disabled:opacity-70" data-testid="button-share-enhanced"><Share2 size={17} /> {isSharing ? '共有リンクを作成中…' : '共有リンクを作成'}</button>}
+            {processedUrl && !isProcessing && <button type="button" onClick={onShare} disabled={isSharing || Boolean(shareUrl)} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#e9a05d]/35 bg-[#e9a05d]/[0.08] px-4 py-3.5 text-sm font-bold text-[#f0bd88] transition hover:border-[#e9a05d]/70 hover:bg-[#e9a05d]/[0.13] disabled:cursor-default disabled:opacity-70" data-testid="button-share-enhanced"><Share2 size={17} /> {isSharing ? '公開中…' : shareUrl ? '公開済み' : '公開して一覧に追加'}</button>}
             {shareUrl && !isSharing && <div className="mt-3 rounded-xl border border-[#6fbbb7]/25 bg-[#172d30]/50 p-3" data-testid="panel-share-link">
               <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold text-[#9ed4d0]"><Check size={13} /> このリンクを送ると誰でも聴けます</div>
               <div className="flex gap-2">
@@ -572,6 +823,7 @@ function Home() {
   const [shareUrl, setShareUrl] = useState<string>();
   const [isSharing, setIsSharing] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [libraryRefreshToken, setLibraryRefreshToken] = useState(0);
   const objectUrl = useMemo(() => file ? URL.createObjectURL(file) : '', [file]);
 
   useEffect(() => () => { if (objectUrl) URL.revokeObjectURL(objectUrl); }, [objectUrl]);
@@ -620,16 +872,19 @@ function Home() {
   };
 
   const share = async () => {
-    if (!processedUrl || isSharing) return;
+    if (!processedUrl || isSharing || shareUrl) return;
     setIsSharing(true);
     setShareError(null);
     try {
+      const baseName = file?.name.replace(/\.[^/.]+$/, '') || 'bassline';
+      const fileName = `${baseName}.wav`;
+      const title = `${baseName}（加工済み）`;
       const audioResponse = await fetch(processedUrl);
       const audioBlob = await audioResponse.blob();
       const response = await fetch('/api/storage/shares/request-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: `${file?.name.replace(/\.[^/.]+$/, '') || 'bassline'}.wav`, size: audioBlob.size, contentType: 'audio/wav' }),
+        body: JSON.stringify({ name: fileName, size: audioBlob.size, contentType: 'audio/wav' }),
       });
       if (!response.ok) throw new Error('request');
       const { uploadURL, objectPath } = await response.json() as { uploadURL: string; objectPath: string };
@@ -639,9 +894,26 @@ function Home() {
         body: audioBlob,
       });
       if (!upload.ok) throw new Error('upload');
-      setShareUrl(getSharePageUrl(objectPath, `${file?.name.replace(/\.[^/.]+$/, '') || 'bassline'}（加工済み）`));
+      const publishResponse = await fetch('/api/storage/tracks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          fileName,
+          objectPath,
+          fileSize: audioBlob.size,
+          amount,
+          semitones,
+          use8D,
+          cleanAudio,
+        }),
+      });
+      if (!publishResponse.ok) throw new Error('publish');
+      const published = await publishResponse.json() as SharedAudio;
+      setShareUrl(getSharePageUrl(published.objectPath, published.title));
+      setLibraryRefreshToken((value) => value + 1);
     } catch {
-      setShareError('共有リンクを作成できませんでした。時間をおいて、もう一度お試しください。');
+      setShareError('音源を公開できませんでした。時間をおいて、もう一度お試しください。');
     } finally {
       setIsSharing(false);
     }
@@ -672,9 +944,10 @@ function Home() {
     <div className="app-shell min-h-[100dvh] text-[#f1ece0]">
       <Header hasTrack={Boolean(file)} onReset={reset} />
        {file && status !== 'error' ? <LoadedState file={file} originalUrl={objectUrl} processedUrl={processedUrl} amount={amount} setAmount={setAmount} activePreset={activePreset} setActivePreset={setActivePreset} semitones={semitones} setSemitones={setSemitones} use8D={use8D} setUse8D={setUse8D} cleanAudio={cleanAudio} setCleanAudio={setCleanAudio} status={status} error={error} shareUrl={shareUrl} isSharing={isSharing} shareError={shareError} onEnhance={enhance} onShare={share} onReset={reset} /> : <EmptyState onFile={chooseFile} error={error} isDragging={dragging} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop} />}
+       <SharedAudioLibrary refreshToken={libraryRefreshToken} />
       <footer className="mx-auto flex w-full max-w-[1180px] items-center justify-between border-t border-[#afbec1]/10 px-5 py-6 text-[10px] text-[#5e7178] sm:px-8 lg:px-10" data-testid="footer-main">
          <span className="font-mono-label">BASSLINE / 2024</span>
-          <span className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-[#6fbbb7]" /> 音声は端末内で処理 · 共有時のみ保存</span>
+           <span className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-[#6fbbb7]" /> 音声は端末内で処理 · 公開時のみ保存</span>
       </footer>
     </div>
   );
@@ -697,13 +970,26 @@ function SharedTrackPage() {
   const objectPath = params.get('file');
   const title = params.get('name') || '加工済みの音源';
   const isValidPath = Boolean(objectPath && /^\/objects\/uploads\/[a-z0-9-]+$/i.test(objectPath));
-  const audioUrl = isValidPath ? `/api/storage${objectPath}` : '';
+  const { currentTrack, isPlaying, repeat, playTrack, setRepeat } = useSharedAudioPlayback();
+  const sharedTrack: SharedAudio | null = isValidPath && objectPath ? {
+    id: objectPath,
+    title,
+    fileName: `${title}.wav`,
+    objectPath,
+    fileSize: 0,
+    amount: 0,
+    semitones: 0,
+    use8D: false,
+    cleanAudio: false,
+    createdAt: new Date().toISOString(),
+  } : null;
+  const isCurrentTrack = sharedTrack ? currentTrack?.id === sharedTrack.id : false;
 
   return (
-    <main className="mx-auto flex min-h-[calc(100dvh-150px)] w-full max-w-[760px] items-center justify-center px-5 py-12 sm:px-8">
+    <main className="mx-auto flex min-h-[calc(100dvh-150px)] w-full max-w-[760px] items-center justify-center px-5 py-12 pb-32 sm:px-8">
       <section className="soft-card w-full rounded-[1.75rem] p-6 sm:p-10" data-testid="page-shared-track">
         <div className="mb-8 flex items-center gap-3"><div className="brand-mark flex h-10 w-10 items-center justify-center rounded-xl bg-[#e9a05d] text-[#152029]"><AudioLines size={21} strokeWidth={2.5} /></div><div><div className="font-mono-label text-[10px] font-bold tracking-[0.2em] text-[#efa960]">BASSLINE</div><div className="text-[11px] text-[#87979c]">共有音源</div></div></div>
-        {isValidPath ? <><div className="mb-2 font-mono-label text-[10px] font-bold text-[#6fbbb7]">SHARED AUDIO</div><h1 className="break-words text-3xl font-semibold tracking-[-0.04em] text-[#f1ece0] sm:text-4xl" data-testid="heading-shared-track">{title}</h1><p className="mt-3 text-sm leading-6 text-[#829399]">この音源はBASSLINEで加工されました。再生ボタンからお聴きください。</p><div className="mt-8 rounded-2xl border border-[#e9a05d]/25 bg-[#17232b] p-5"><audio controls autoPlay={false} src={audioUrl} className="w-full" data-testid="audio-shared-track"><track kind="captions" /></audio></div><p className="mt-5 text-center text-xs text-[#64777e]">音源を共有してくれた人が作成したリンクです</p></> : <><div className="mb-2 font-mono-label text-[10px] font-bold text-[#d97962]">LINK ERROR</div><h1 className="text-3xl font-semibold text-[#f1ece0]">共有音源が見つかりません</h1><p className="mt-3 text-sm leading-6 text-[#829399]">リンクが正しくないか、音源が削除されています。</p></>}
+         {isValidPath && sharedTrack ? <><div className="mb-2 font-mono-label text-[10px] font-bold text-[#6fbbb7]">SHARED AUDIO</div><h1 className="break-words text-3xl font-semibold tracking-[-0.04em] text-[#f1ece0] sm:text-4xl" data-testid="heading-shared-track">{title}</h1><p className="mt-3 text-sm leading-6 text-[#829399]">この音源はBASSLINEで加工されました。画面を移動しても再生を続けられます。</p><div className="mt-8 rounded-2xl border border-[#e9a05d]/25 bg-[#17232b] p-5"><div className="flex items-center gap-3"><button type="button" onClick={() => void playTrack(sharedTrack)} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#e9a05d] text-[#17222a] transition hover:scale-105" aria-label={isCurrentTrack && isPlaying ? '一時停止' : '再生'} data-testid="button-play-shared-track">{isCurrentTrack && isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}</button><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold text-[#f1ece0]">{title}</div><div className="mt-1 text-xs text-[#829399]">バックグラウンド再生に対応</div></div><button type="button" onClick={() => setRepeat(!repeat)} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${repeat ? 'bg-[#6fbbb7]/20 text-[#9ed4d0]' : 'bg-[#afbec1]/[0.08] text-[#829399]'}`} aria-pressed={repeat} aria-label="リピート再生" data-testid="button-repeat-shared-track"><Repeat2 size={17} /></button></div></div><p className="mt-5 text-center text-xs text-[#64777e]">リピートをオンにすると曲が終わっても繰り返し再生します</p></> : <><div className="mb-2 font-mono-label text-[10px] font-bold text-[#d97962]">LINK ERROR</div><h1 className="text-3xl font-semibold text-[#f1ece0]">共有音源が見つかりません</h1><p className="mt-3 text-sm leading-6 text-[#829399]">リンクが正しくないか、音源が削除されています。</p></>}
       </section>
     </main>
   );
@@ -716,9 +1002,12 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
 
 function App() {
   return (
-    <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-      <Router />
-    </WouterRouter>
+    <SharedAudioPlaybackProvider>
+      <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+        <Router />
+      </WouterRouter>
+      <GlobalSharedAudioPlayer />
+    </SharedAudioPlaybackProvider>
   );
 }
 

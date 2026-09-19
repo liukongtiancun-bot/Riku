@@ -49,6 +49,49 @@ paths:
           description: Invalid audio metadata
         "500":
           description: Unable to create upload URL
+  /storage/tracks:
+    get:
+      operationId: listSharedAudio
+      tags: [sharing]
+      summary: List publicly shared processed audio
+      description: Returns all processed audio tracks that have been published for public listening.
+      responses:
+        "200":
+          description: Shared audio list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SharedAudio"
+        "500":
+          description: Unable to list shared audio
+    post:
+      operationId: createSharedAudio
+      tags: [sharing]
+      summary: Publish processed audio
+      description: Registers an uploaded processed WAV file in the public audio library.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SharedAudioInput"
+      responses:
+        "201":
+          description: Shared audio created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SharedAudio"
+        "400":
+          description: Invalid shared audio metadata
+        "404":
+          description: Uploaded audio not found
+        "409":
+          description: Audio has already been published
+        "500":
+          description: Unable to publish audio
 components:
   schemas:
     HealthStatus:
@@ -87,4 +130,79 @@ components:
         - uploadURL
         - objectPath
         - expiresInSeconds
+    SharedAudio:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        fileName:
+          type: string
+        objectPath:
+          type: string
+        fileSize:
+          type: integer
+        amount:
+          type: integer
+        semitones:
+          type: integer
+        use8D:
+          type: boolean
+        cleanAudio:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - title
+        - fileName
+        - objectPath
+        - fileSize
+        - amount
+        - semitones
+        - use8D
+        - cleanAudio
+        - createdAt
+    SharedAudioInput:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        fileName:
+          type: string
+          minLength: 1
+          maxLength: 255
+        objectPath:
+          type: string
+          pattern: "^/objects/uploads/[a-z0-9-]+$"
+        fileSize:
+          type: integer
+          minimum: 1
+          maximum: 52428800
+        amount:
+          type: integer
+          minimum: 0
+          maximum: 100
+        semitones:
+          type: integer
+          minimum: -12
+          maximum: 12
+        use8D:
+          type: boolean
+        cleanAudio:
+          type: boolean
+      required:
+        - title
+        - fileName
+        - objectPath
+        - fileSize
+        - amount
+        - semitones
+        - use8D
+        - cleanAudio
 

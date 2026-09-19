@@ -22,7 +22,9 @@ import type {
 import type {
   HealthStatus,
   ShareUploadRequest,
-  ShareUploadResponse
+  ShareUploadResponse,
+  SharedAudio,
+  SharedAudioInput
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -200,5 +202,155 @@ export const useRequestShareUploadUrl = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getRequestShareUploadUrlMutationOptions(options));
+    }
+
+export const getListSharedAudioUrl = () => {
+
+
+
+
+  return `/api/storage/tracks`
+}
+
+/**
+ * Returns all processed audio tracks that have been published for public listening.
+ * @summary List publicly shared processed audio
+ */
+export const listSharedAudio = async ( options?: Parameters<typeof customFetch>[1]): Promise<SharedAudio[]> => {
+
+  return customFetch<SharedAudio[]>(getListSharedAudioUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListSharedAudioQueryKey = () => {
+    return [
+    `/api/storage/tracks`
+    ] as const;
+    }
+
+
+export const getListSharedAudioQueryOptions = <TData = Awaited<ReturnType<typeof listSharedAudio>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSharedAudio>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListSharedAudioQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listSharedAudio>>> = ({ signal }) => listSharedAudio({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listSharedAudio>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListSharedAudioQueryResult = NonNullable<Awaited<ReturnType<typeof listSharedAudio>>>
+export type ListSharedAudioQueryError = ErrorType<void>
+
+
+/**
+ * @summary List publicly shared processed audio
+ */
+
+export function useListSharedAudio<TData = Awaited<ReturnType<typeof listSharedAudio>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSharedAudio>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListSharedAudioQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateSharedAudioUrl = () => {
+
+
+
+
+  return `/api/storage/tracks`
+}
+
+/**
+ * Registers an uploaded processed WAV file in the public audio library.
+ * @summary Publish processed audio
+ */
+export const createSharedAudio = async (sharedAudioInput: SharedAudioInput, options?: Parameters<typeof customFetch>[1]): Promise<SharedAudio> => {
+
+  return customFetch<SharedAudio>(getCreateSharedAudioUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(sharedAudioInput)
+  }
+);}
+
+
+
+
+
+export const getCreateSharedAudioMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSharedAudio>>, TError,{data: BodyType<SharedAudioInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createSharedAudio>>, TError,{data: BodyType<SharedAudioInput>}, TContext> => {
+
+const mutationKey = ['createSharedAudio'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createSharedAudio>>, {data: BodyType<SharedAudioInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createSharedAudio(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateSharedAudioMutationResult = NonNullable<Awaited<ReturnType<typeof createSharedAudio>>>
+    export type CreateSharedAudioMutationBody = BodyType<SharedAudioInput>
+    export type CreateSharedAudioMutationError = ErrorType<void>
+
+    /**
+ * @summary Publish processed audio
+ */
+export const useCreateSharedAudio = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSharedAudio>>, TError,{data: BodyType<SharedAudioInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createSharedAudio>>,
+        TError,
+        {data: BodyType<SharedAudioInput>},
+        TContext
+      > => {
+      return useMutation(getCreateSharedAudioMutationOptions(options));
     }
 
