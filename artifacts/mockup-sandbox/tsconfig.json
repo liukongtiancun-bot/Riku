@@ -12,7 +12,8 @@
     "allowImportingTsExtensions": true,
     "types": ["node", "vite/client"],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["../mp3-bass-booster/src/*"],
+      "@workspace/api-client-react": ["../../lib/api-client-react/src/index.ts"]
     }
   }
 }

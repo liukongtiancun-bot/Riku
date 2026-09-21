@@ -14,6 +14,7 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 const basePath = process.env.BASE_PATH ?? "/";
+const appRoot = path.resolve(import.meta.dirname, "../mp3-bass-booster");
 
 export default defineConfig({
   base: basePath,
@@ -35,7 +36,8 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path.resolve(import.meta.dirname, "src"),
+      "@": path.resolve(appRoot, "src"),
+      "@assets": path.resolve(import.meta.dirname, "../../attached_assets"),
     },
   },
   root: path.resolve(import.meta.dirname),
@@ -49,6 +51,7 @@ export default defineConfig({
     allowedHosts: true,
     fs: {
       strict: true,
+      allow: [path.resolve(import.meta.dirname, "..")],
     },
   },
   preview: {
