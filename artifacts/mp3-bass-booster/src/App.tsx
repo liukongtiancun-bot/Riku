@@ -10,6 +10,9 @@ type Track = 'original' | 'processed';
 type AppStatus = 'idle' | 'ready' | 'processing' | 'error';
 type InputKind = 'audio' | 'video';
 
+const MAX_AUDIO_INPUT_BYTES = 50 * 1024 * 1024;
+const MAX_VIDEO_INPUT_BYTES = 200 * 1024 * 1024;
+
 const presets = [
   { name: 'やさしく', detail: '自然なあたたかさ', amount: 34, color: 'teal' },
   { name: 'しっかり', detail: 'バランスのよい厚み', amount: 62, color: 'amber' },
@@ -373,7 +376,7 @@ function EmptyState({ onFile, isDragging, onDragOver, onDragLeave, onDrop, error
                  ファイルを選ぶ
               </button>
               <div className="mt-5 flex items-center justify-center gap-2 text-[10px] text-[#64777e]">
-                 <FileAudio size={13} /> MP3 / 動画 · 50MBまで
+                 <FileAudio size={13} /> MP3 50MB / 動画 200MBまで
               </div>
             </div>
           </div>
@@ -976,9 +979,12 @@ function Home() {
        setError('MP3または動画ファイルを選択してください。');
       return;
     }
-    if (next.size > 50 * 1024 * 1024) {
+    const maxInputBytes = nextInputKind === 'video'
+      ? MAX_VIDEO_INPUT_BYTES
+      : MAX_AUDIO_INPUT_BYTES;
+    if (next.size > maxInputBytes) {
       setStatus('error');
-       setError('50MBを超えています。より小さいファイルを選ぶと、すばやく処理できます。');
+       setError(`${nextInputKind === 'video' ? '動画' : 'MP3'}が大きすぎます。${nextInputKind === 'video' ? '動画は200MB' : 'MP3は50MB'}まで選択できます。`);
       return;
     }
     if (processedUrl) URL.revokeObjectURL(processedUrl);
