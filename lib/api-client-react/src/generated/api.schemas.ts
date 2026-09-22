@@ -9,6 +9,15 @@ export interface HealthStatus {
   status: string;
 }
 
+export type ShareUploadRequestContentType = typeof ShareUploadRequestContentType[keyof typeof ShareUploadRequestContentType];
+
+
+export const ShareUploadRequestContentType = {
+  'audio/mpeg': 'audio/mpeg',
+  'audio/mp3': 'audio/mp3',
+  'audio/wav': 'audio/wav',
+} as const;
+
 export interface ShareUploadRequest {
   name: string;
   /**
@@ -16,7 +25,7 @@ export interface ShareUploadRequest {
      * @maximum 52428800
      */
   size: number;
-  contentType: string;
+  contentType: ShareUploadRequestContentType;
 }
 
 export interface ShareUploadResponse {

@@ -31,7 +31,7 @@ paths:
       operationId: requestShareUploadUrl
       tags: [sharing]
       summary: Request a public audio upload URL
-      description: Returns a short-lived upload URL for a processed WAV file.
+      description: Returns a short-lived upload URL for a processed MP3 or WAV file.
       requestBody:
         required: true
         content:
@@ -70,7 +70,7 @@ paths:
       operationId: createSharedAudio
       tags: [sharing]
       summary: Publish processed audio
-      description: Registers an uploaded processed WAV file in the public audio library.
+      description: Registers an uploaded processed MP3 or WAV file in the public audio library.
       requestBody:
         required: true
         content:
@@ -112,6 +112,10 @@ components:
           maximum: 52428800
         contentType:
           type: string
+          enum:
+            - audio/mpeg
+            - audio/mp3
+            - audio/wav
       required:
         - name
         - size

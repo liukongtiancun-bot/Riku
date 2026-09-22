@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ShareUploadRequestContentType } from './shareUploadRequestContentType';
 
 export interface ShareUploadRequest {
   name: string;
@@ -13,5 +14,5 @@ export interface ShareUploadRequest {
      * @maximum 52428800
      */
   size: number;
-  contentType: string;
+  contentType: ShareUploadRequestContentType;
 }

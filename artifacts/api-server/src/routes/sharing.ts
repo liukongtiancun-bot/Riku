@@ -14,6 +14,7 @@ import {
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
 const MAX_SHARE_BYTES = 50 * 1024 * 1024;
+const SHARE_AUDIO_CONTENT_TYPES = new Set(["audio/wav", "audio/mpeg", "audio/mp3"]);
 
 router.get(
   "/storage/tracks",
@@ -49,7 +50,7 @@ router.post(
       if (
         !Number.isFinite(storedSize) ||
         storedSize !== input.fileSize ||
-        metadata.contentType !== "audio/wav"
+        !SHARE_AUDIO_CONTENT_TYPES.has(metadata.contentType || "")
       ) {
         res.status(400).json({ error: "Uploaded audio metadata does not match" });
         return;
@@ -100,12 +101,13 @@ router.post(
     }
 
     const { name, size, contentType } = parsed.data;
-    if (
-      !name.toLowerCase().endsWith(".wav") ||
-      contentType !== "audio/wav" ||
-      size > MAX_SHARE_BYTES
-    ) {
-      res.status(400).json({ error: "Only WAV files up to 50MB can be shared" });
+    const lowerName = name.toLowerCase();
+    const isWav = lowerName.endsWith(".wav") && contentType === "audio/wav";
+    const isMp3 =
+      lowerName.endsWith(".mp3") &&
+      (contentType === "audio/mpeg" || contentType === "audio/mp3");
+    if ((!isWav && !isMp3) || size > MAX_SHARE_BYTES) {
+      res.status(400).json({ error: "Only MP3 or WAV files up to 50MB can be shared" });
       return;
     }
 

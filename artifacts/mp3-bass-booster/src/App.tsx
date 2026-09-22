@@ -4,9 +4,11 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 import type { SharedAudio } from '@workspace/api-client-react';
+import lamejs from 'lamejs';
 
 type Track = 'original' | 'processed';
 type AppStatus = 'idle' | 'ready' | 'processing' | 'error';
+type InputKind = 'audio' | 'video';
 
 const presets = [
   { name: 'やさしく', detail: '自然なあたたかさ', amount: 34, color: 'teal' },
@@ -45,45 +47,170 @@ function getSharedAudioUrl(objectPath: string) {
   return `/api/storage${objectPath}`;
 }
 
-function bufferToWav(buffer: AudioBuffer) {
-  const channels = buffer.numberOfChannels;
-  const frameLength = buffer.length * channels * 2;
-  const view = new DataView(new ArrayBuffer(44 + frameLength));
-  const writeString = (offset: number, value: string) => {
-    [...value].forEach((character, index) => view.setUint8(offset + index, character.charCodeAt(0)));
-  };
-  writeString(0, 'RIFF');
-  view.setUint32(4, 36 + frameLength, true);
-  writeString(8, 'WAVE');
-  writeString(12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, channels, true);
-  view.setUint32(24, buffer.sampleRate, true);
-  view.setUint32(28, buffer.sampleRate * channels * 2, true);
-  view.setUint16(32, channels * 2, true);
-  view.setUint16(34, 16, true);
-  writeString(36, 'data');
-  view.setUint32(40, frameLength, true);
-  let offset = 44;
-  for (let frame = 0; frame < buffer.length; frame += 1) {
-    for (let channel = 0; channel < channels; channel += 1) {
-      const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[frame]));
-      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-      offset += 2;
-    }
-  }
-  return new Blob([view], { type: 'audio/wav' });
+function getFileStem(fileName: string) {
+  return fileName.replace(/\.[^/.]+$/, '');
 }
 
-async function enhanceAudio(file: File, amount: number, use8D: boolean, cleanAudio: boolean, semitones: number) {
-  const source = await file.arrayBuffer();
+function sanitizeFileStem(value: string) {
+  return value
+    .trim()
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '-')
+    .replace(/\s+/g, ' ')
+    .slice(0, 120)
+    .trim() || 'bassline';
+}
+
+function getInputKind(file: File): InputKind | null {
+  const lowerName = file.name.toLowerCase();
+  if (file.type.startsWith('video/') || /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(lowerName)) return 'video';
+  if (file.type === 'audio/mpeg' || file.type === 'audio/mp3' || /\.mp3$/i.test(lowerName)) return 'audio';
+  return null;
+}
+
+function bufferToMp3(buffer: AudioBuffer) {
+  const channels = buffer.numberOfChannels > 1 ? 2 : 1;
+  const encoder = new lamejs.Mp3Encoder(channels, buffer.sampleRate, 192);
+  const sampleBlockSize = 1152;
+  const left = buffer.getChannelData(0);
+  const right = channels === 2 ? buffer.getChannelData(1) : undefined;
+  const mp3Data: Int8Array[] = [];
+
+  const toInt16 = (data: Float32Array, start: number, end: number) => {
+    const samples = new Int16Array(end - start);
+    for (let index = start; index < end; index += 1) {
+      const sample = Math.max(-1, Math.min(1, data[index]));
+      samples[index - start] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+    }
+    return samples;
+  };
+
+  for (let offset = 0; offset < buffer.length; offset += sampleBlockSize) {
+    const end = Math.min(offset + sampleBlockSize, buffer.length);
+    const encoded = right
+      ? encoder.encodeBuffer(toInt16(left, offset, end), toInt16(right, offset, end))
+      : encoder.encodeBuffer(toInt16(left, offset, end));
+    if (encoded.length > 0) mp3Data.push(encoded);
+  }
+
+  const flushed = encoder.flush();
+  if (flushed.length > 0) mp3Data.push(flushed);
+  const mp3Parts = mp3Data.map((chunk) => {
+    const part = new ArrayBuffer(chunk.byteLength);
+    new Uint8Array(part).set(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+    return part;
+  });
+  return new Blob(mp3Parts, { type: 'audio/mpeg' });
+}
+
+async function decodeAudioFile(file: File) {
   const audioContext = new AudioContext();
-  const decoded = await audioContext.decodeAudioData(source);
-  await audioContext.close();
+  try {
+    return await audioContext.decodeAudioData(await file.arrayBuffer());
+  } finally {
+    await audioContext.close();
+  }
+}
+
+function waitForEvent<T extends Event>(target: EventTarget, eventName: string) {
+  return new Promise<T>((resolve, reject) => {
+    const handleEvent = (event: Event) => {
+      cleanup();
+      resolve(event as T);
+    };
+    const handleError = () => {
+      cleanup();
+      reject(new Error(`Media event failed: ${eventName}`));
+    };
+    const cleanup = () => {
+      target.removeEventListener(eventName, handleEvent);
+      target.removeEventListener('error', handleError);
+    };
+    target.addEventListener(eventName, handleEvent, { once: true });
+    target.addEventListener('error', handleError, { once: true });
+  });
+}
+
+async function extractVideoAudio(file: File) {
+  if (typeof MediaRecorder === 'undefined') {
+    throw new Error('This browser does not support audio recording.');
+  }
+
+  const video = document.createElement('video');
+  const objectUrl = URL.createObjectURL(file);
+  const audioContext = new AudioContext();
+  let recorder: MediaRecorder | null = null;
+
+  try {
+    video.preload = 'auto';
+    video.playsInline = true;
+    video.muted = true;
+    video.src = objectUrl;
+    video.load();
+    await waitForEvent(video, 'loadedmetadata');
+
+    if (!Number.isFinite(video.duration) || video.duration <= 0) {
+      throw new Error('Video duration is unavailable.');
+    }
+
+    const source = audioContext.createMediaElementSource(video);
+    const destination = audioContext.createMediaStreamDestination();
+    source.connect(destination);
+    await audioContext.resume();
+    const mimeType = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4',
+      'audio/ogg;codecs=opus',
+    ].find((candidate) => MediaRecorder.isTypeSupported(candidate));
+    recorder = new MediaRecorder(
+      destination.stream,
+      mimeType ? { mimeType } : undefined,
+    );
+    const chunks: Blob[] = [];
+    recorder.addEventListener('dataavailable', (event) => {
+      if (event.data.size > 0) chunks.push(event.data);
+    });
+    const recordingFinished = new Promise<void>((resolve, reject) => {
+      recorder?.addEventListener('stop', () => resolve(), { once: true });
+      recorder?.addEventListener('error', () => reject(new Error('Video recording failed.')), { once: true });
+    });
+
+    recorder.start(250);
+    await video.play();
+    await waitForEvent(video, 'ended');
+    recorder.requestData();
+    recorder.stop();
+    await recordingFinished;
+
+    const recordedAudio = new Blob(chunks, {
+      type: recorder.mimeType || mimeType || 'audio/webm',
+    });
+    if (recordedAudio.size === 0) {
+      throw new Error('No audio was found in the video.');
+    }
+    return await audioContext.decodeAudioData(await recordedAudio.arrayBuffer());
+  } finally {
+    recorder?.stream.getTracks().forEach((track) => track.stop());
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+    URL.revokeObjectURL(objectUrl);
+    await audioContext.close();
+  }
+}
+
+async function decodeInputAudio(file: File) {
+  return getInputKind(file) === 'video'
+    ? extractVideoAudio(file)
+    : decodeAudioFile(file);
+}
+
+async function enhanceAudio(decoded: AudioBuffer, amount: number, use8D: boolean, cleanAudio: boolean, semitones: number) {
+  const channels = decoded.numberOfChannels;
   const pitchRate = Math.pow(2, semitones / 12);
-  const renderedDuration = decoded.duration / pitchRate;
-  const renderedLength = Math.max(1, Math.ceil(decoded.length / pitchRate));
+  const tailPaddingSeconds = 0.25;
+  const renderedDuration = decoded.duration / pitchRate + tailPaddingSeconds;
+  const renderedLength = Math.max(1, Math.ceil(renderedDuration * decoded.sampleRate));
   const offline = new OfflineAudioContext(decoded.numberOfChannels, renderedLength, decoded.sampleRate);
   const bufferSource = offline.createBufferSource();
   bufferSource.buffer = decoded;
@@ -138,7 +265,7 @@ async function enhanceAudio(file: File, amount: number, use8D: boolean, cleanAud
   input.connect(lowShelf).connect(compressor).connect(safetyGain).connect(spatialPanner).connect(limiter).connect(offline.destination);
   bufferSource.start();
   const rendered = await offline.startRendering();
-  return bufferToWav(rendered);
+  return bufferToMp3(rendered);
 }
 
 function Brand() {
@@ -238,15 +365,15 @@ function EmptyState({ onFile, isDragging, onDragOver, onDragLeave, onDrop, error
             <div className="grid-lines pointer-events-none absolute inset-0 opacity-70" />
             <div className="relative z-10">
               <BoothGraphic />
-              <h2 className="mt-3 text-xl font-semibold text-[#f1ece0]" data-testid="heading-upload">MP3を入れて始める</h2>
-              <p className="mt-2 text-sm text-[#829399]">または端末からファイルを選択</p>
-              <input ref={inputRef} onChange={handleChange} type="file" accept=".mp3,audio/mpeg,audio/mp3" className="hidden" data-testid="input-audio-file" />
-              <button type="button" onClick={() => inputRef.current?.click()} className="mt-7 inline-flex items-center gap-2 rounded-xl bg-[#e9a05d] px-5 py-3 text-sm font-bold text-[#17222a] shadow-[0_10px_30px_rgba(225,151,73,0.18)] transition hover:-translate-y-0.5 hover:bg-[#f1b271] active:translate-y-0" data-testid="button-choose-mp3">
+               <h2 className="mt-3 text-xl font-semibold text-[#f1ece0]" data-testid="heading-upload">MP3 / 動画を入れて始める</h2>
+               <p className="mt-2 text-sm text-[#829399]">写真アプリや端末からファイルを選択</p>
+               <input ref={inputRef} onChange={handleChange} type="file" accept=".mp3,audio/mpeg,audio/mp3,video/*,.mp4,.mov,.m4v,.webm" className="hidden" data-testid="input-audio-file" />
+               <button type="button" onClick={() => inputRef.current?.click()} className="mt-7 inline-flex items-center gap-2 rounded-xl bg-[#e9a05d] px-5 py-3 text-sm font-bold text-[#17222a] shadow-[0_10px_30px_rgba(225,151,73,0.18)] transition hover:-translate-y-0.5 hover:bg-[#f1b271] active:translate-y-0" data-testid="button-choose-mp3">
                 <Upload size={17} />
-                MP3を選ぶ
+                 ファイルを選ぶ
               </button>
               <div className="mt-5 flex items-center justify-center gap-2 text-[10px] text-[#64777e]">
-                <FileAudio size={13} /> MP3のみ · 50MBまで
+                 <FileAudio size={13} /> MP3 / 動画 · 50MBまで
               </div>
             </div>
           </div>
@@ -658,10 +785,13 @@ function Controls({ amount, onAmount, activePreset, onPreset, semitones, onSemit
   );
 }
 
-function LoadedState({ file, originalUrl, processedUrl, amount, setAmount, activePreset, setActivePreset, semitones, setSemitones, use8D, setUse8D, cleanAudio, setCleanAudio, status, error, shareUrl, isSharing, shareError, onEnhance, onShare, onReset }: {
+function LoadedState({ file, inputKind, originalUrl, processedUrl, outputName, setOutputName, amount, setAmount, activePreset, setActivePreset, semitones, setSemitones, use8D, setUse8D, cleanAudio, setCleanAudio, status, error, shareUrl, isSharing, shareError, onEnhance, onShare, onReset }: {
   file: File;
+  inputKind: InputKind;
   originalUrl: string;
   processedUrl?: string;
+  outputName: string;
+  setOutputName: (name: string) => void;
   amount: number;
   setAmount: (amount: number) => void;
   activePreset: number | null;
@@ -746,7 +876,7 @@ function LoadedState({ file, originalUrl, processedUrl, amount, setAmount, activ
     if (!processedUrl) return;
     const link = document.createElement('a');
     link.href = processedUrl;
-    link.download = `${file.name.replace(/\.[^/.]+$/, '')}-bassline.wav`;
+    link.download = `${sanitizeFileStem(outputName)}.mp3`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -762,9 +892,17 @@ function LoadedState({ file, originalUrl, processedUrl, amount, setAmount, activ
         </div>
         <div className="flex items-center gap-2 rounded-xl border border-[#afbec1]/10 bg-[#17232b] px-3 py-2.5">
           <FileAudio size={17} className="text-[#e9a05d]" />
-          <div className="min-w-0"><div className="max-w-[205px] truncate text-xs font-medium text-[#dce5e1]" data-testid="text-file-name">{file.name}</div><div className="mt-0.5 text-[10px] text-[#6f8389]">{formatBytes(file.size)} · MP3</div></div>
+           <div className="min-w-0"><div className="max-w-[205px] truncate text-xs font-medium text-[#dce5e1]" data-testid="text-file-name">{file.name}</div><div className="mt-0.5 text-[10px] text-[#6f8389]">{formatBytes(file.size)} · {inputKind === 'video' ? '動画の音声' : 'MP3'}</div></div>
           <Check size={15} className="ml-2 text-[#6fbbb7]" />
         </div>
+      </div>
+      <div className="mt-5 rounded-xl border border-[#afbec1]/10 bg-[#17232b]/70 p-4" data-testid="panel-output-name">
+        <label htmlFor="output-file-name" className="font-mono-label text-[10px] font-bold text-[#6fbbb7]">変換後のファイル名</label>
+        <div className="mt-2 flex items-center gap-2">
+          <input id="output-file-name" value={outputName} onChange={(event) => setOutputName(event.target.value.replace(/\.mp3$/i, ''))} className="min-w-0 flex-1 rounded-lg border border-[#afbec1]/15 bg-[#111b22] px-3 py-2.5 text-sm text-[#f1ece0] outline-none transition focus:border-[#6fbbb7]/60" placeholder="bassline" data-testid="input-output-file-name" />
+          <span className="font-mono-label text-xs text-[#829399]">.mp3</span>
+        </div>
+        <p className="mt-2 text-[10px] leading-5 text-[#73868d]">保存・公開するときにこの名前が使われます。</p>
       </div>
       {error && <div className="reveal mt-6 flex items-start gap-3 rounded-xl border border-[#d97962]/30 bg-[#d97962]/[0.08] px-4 py-3 text-sm text-[#e6a293]" role="alert" data-testid="alert-processing-error"><CircleAlert size={17} className="mt-0.5 shrink-0" /> <span>{error}</span><button type="button" onClick={onReset} className="ml-auto p-1 text-[#e6a293] hover:text-[#f1ece0]" aria-label="Dismiss error" data-testid="button-dismiss-error"><X size={15} /></button></div>}
       <div className="mt-8 grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
@@ -785,7 +923,7 @@ function LoadedState({ file, originalUrl, processedUrl, amount, setAmount, activ
         </section>
         <section className="reveal reveal-delay-2">
             <Controls amount={amount} onAmount={(value) => { setAmount(value); setActivePreset(null); }} activePreset={activePreset} onPreset={(value) => { setAmount(value); setActivePreset(value); }} semitones={semitones} onSemitones={setSemitones} use8D={use8D} onUse8D={setUse8D} cleanAudio={cleanAudio} onCleanAudio={setCleanAudio} onEnhance={onEnhance} isProcessing={isProcessing} hasProcessed={Boolean(processedUrl)} />
-            {processedUrl && !isProcessing && <button type="button" onClick={download} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#6fbbb7]/35 bg-[#6fbbb7]/[0.08] px-4 py-3.5 text-sm font-bold text-[#9ed4d0] transition hover:border-[#6fbbb7]/70 hover:bg-[#6fbbb7]/[0.13]" data-testid="button-download-enhanced"><Download size={17} /> 加工済みWAVを保存</button>}
+            {processedUrl && !isProcessing && <button type="button" onClick={download} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#6fbbb7]/35 bg-[#6fbbb7]/[0.08] px-4 py-3.5 text-sm font-bold text-[#9ed4d0] transition hover:border-[#6fbbb7]/70 hover:bg-[#6fbbb7]/[0.13]" data-testid="button-download-enhanced"><Download size={17} /> 加工済みMP3を保存</button>}
             {processedUrl && !isProcessing && <button type="button" onClick={onShare} disabled={isSharing || Boolean(shareUrl)} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#e9a05d]/35 bg-[#e9a05d]/[0.08] px-4 py-3.5 text-sm font-bold text-[#f0bd88] transition hover:border-[#e9a05d]/70 hover:bg-[#e9a05d]/[0.13] disabled:cursor-default disabled:opacity-70" data-testid="button-share-enhanced"><Share2 size={17} /> {isSharing ? '公開中…' : shareUrl ? '公開済み' : '公開して一覧に追加'}</button>}
             {shareUrl && !isSharing && <div className="mt-3 rounded-xl border border-[#6fbbb7]/25 bg-[#172d30]/50 p-3" data-testid="panel-share-link">
               <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold text-[#9ed4d0]"><Check size={13} /> このリンクを送ると誰でも聴けます</div>
@@ -811,6 +949,7 @@ function LoadedState({ file, originalUrl, processedUrl, amount, setAmount, activ
 
 function Home() {
   const [file, setFile] = useState<File | null>(null);
+  const [outputName, setOutputName] = useState('bassline');
   const [status, setStatus] = useState<AppStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -831,20 +970,22 @@ function Home() {
   const chooseFile = (next?: File) => {
     if (!next) return;
     setError(null);
-    if (!next.name.toLowerCase().endsWith('.mp3') && next.type !== 'audio/mpeg' && next.type !== 'audio/mp3') {
+    const nextInputKind = getInputKind(next);
+    if (!nextInputKind) {
       setStatus('error');
-       setError('MP3ファイルではありません。MP3を選択してください。');
+       setError('MP3または動画ファイルを選択してください。');
       return;
     }
     if (next.size > 50 * 1024 * 1024) {
       setStatus('error');
-       setError('50MBを超えています。より小さいMP3を選ぶと、すばやく処理できます。');
+       setError('50MBを超えています。より小さいファイルを選ぶと、すばやく処理できます。');
       return;
     }
     if (processedUrl) URL.revokeObjectURL(processedUrl);
     setProcessedUrl(undefined);
     setShareUrl(undefined);
     setShareError(null);
+    setOutputName(getFileStem(next.name));
     setAmount(62);
     setActivePreset(62);
     setSemitones(0);
@@ -859,7 +1000,8 @@ function Home() {
     setError(null);
     setStatus('processing');
     try {
-      const result = await enhanceAudio(file, amount, use8D, cleanAudio, semitones);
+      const decoded = await decodeInputAudio(file);
+      const result = await enhanceAudio(decoded, amount, use8D, cleanAudio, semitones);
       if (processedUrl) URL.revokeObjectURL(processedUrl);
       setProcessedUrl(URL.createObjectURL(result));
       setShareUrl(undefined);
@@ -867,7 +1009,7 @@ function Home() {
       setStatus('ready');
     } catch {
       setStatus('ready');
-       setError('このブラウザでMP3を読み込めませんでした。別のファイルをお試しください。');
+       setError('このブラウザで音声を読み込めませんでした。動画に音声があるか確認し、別のファイルをお試しください。');
     }
   };
 
@@ -876,21 +1018,21 @@ function Home() {
     setIsSharing(true);
     setShareError(null);
     try {
-      const baseName = file?.name.replace(/\.[^/.]+$/, '') || 'bassline';
-      const fileName = `${baseName}.wav`;
+      const baseName = sanitizeFileStem(outputName || getFileStem(file?.name || 'bassline'));
+      const fileName = `${baseName}.mp3`;
       const title = `${baseName}（加工済み）`;
       const audioResponse = await fetch(processedUrl);
       const audioBlob = await audioResponse.blob();
       const response = await fetch('/api/storage/shares/request-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: fileName, size: audioBlob.size, contentType: 'audio/wav' }),
+        body: JSON.stringify({ name: fileName, size: audioBlob.size, contentType: 'audio/mpeg' }),
       });
       if (!response.ok) throw new Error('request');
       const { uploadURL, objectPath } = await response.json() as { uploadURL: string; objectPath: string };
       const upload = await fetch(uploadURL, {
         method: 'PUT',
-        headers: { 'Content-Type': 'audio/wav' },
+        headers: { 'Content-Type': 'audio/mpeg' },
         body: audioBlob,
       });
       if (!upload.ok) throw new Error('upload');
@@ -932,6 +1074,7 @@ function Home() {
     setSemitones(0);
     setUse8D(false);
     setCleanAudio(false);
+    setOutputName('bassline');
   };
 
   const drop = (event: DragEvent<HTMLDivElement>) => {
@@ -943,7 +1086,7 @@ function Home() {
   return (
     <div className="app-shell min-h-[100dvh] text-[#f1ece0]">
       <Header hasTrack={Boolean(file)} onReset={reset} />
-       {file && status !== 'error' ? <LoadedState file={file} originalUrl={objectUrl} processedUrl={processedUrl} amount={amount} setAmount={setAmount} activePreset={activePreset} setActivePreset={setActivePreset} semitones={semitones} setSemitones={setSemitones} use8D={use8D} setUse8D={setUse8D} cleanAudio={cleanAudio} setCleanAudio={setCleanAudio} status={status} error={error} shareUrl={shareUrl} isSharing={isSharing} shareError={shareError} onEnhance={enhance} onShare={share} onReset={reset} /> : <EmptyState onFile={chooseFile} error={error} isDragging={dragging} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop} />}
+       {file && status !== 'error' ? <LoadedState file={file} inputKind={getInputKind(file) || 'audio'} originalUrl={objectUrl} processedUrl={processedUrl} outputName={outputName} setOutputName={setOutputName} amount={amount} setAmount={setAmount} activePreset={activePreset} setActivePreset={setActivePreset} semitones={semitones} setSemitones={setSemitones} use8D={use8D} setUse8D={setUse8D} cleanAudio={cleanAudio} setCleanAudio={setCleanAudio} status={status} error={error} shareUrl={shareUrl} isSharing={isSharing} shareError={shareError} onEnhance={enhance} onShare={share} onReset={reset} /> : <EmptyState onFile={chooseFile} error={error} isDragging={dragging} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop} />}
        <SharedAudioLibrary refreshToken={libraryRefreshToken} />
       <footer className="mx-auto flex w-full max-w-[1180px] items-center justify-between border-t border-[#afbec1]/10 px-5 py-6 text-[10px] text-[#5e7178] sm:px-8 lg:px-10" data-testid="footer-main">
          <span className="font-mono-label">BASSLINE / 2024</span>
@@ -974,7 +1117,7 @@ function SharedTrackPage() {
   const sharedTrack: SharedAudio | null = isValidPath && objectPath ? {
     id: objectPath,
     title,
-    fileName: `${title}.wav`,
+    fileName: `${title}.mp3`,
     objectPath,
     fileSize: 0,
     amount: 0,

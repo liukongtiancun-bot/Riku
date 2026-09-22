@@ -10,4 +10,5 @@ export * from './healthStatus';
 export * from './sharedAudio';
 export * from './sharedAudioInput';
 export * from './shareUploadRequest';
+export * from './shareUploadRequestContentType';
 export * from './shareUploadResponse';

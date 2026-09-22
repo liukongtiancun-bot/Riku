@@ -18,7 +18,7 @@ export const HealthCheckResponse = zod.object({
 
 
 /**
- * Returns a short-lived upload URL for a processed WAV file.
+ * Returns a short-lived upload URL for a processed MP3 or WAV file.
  * @summary Request a public audio upload URL
  */
 export const requestShareUploadUrlBodySizeMax = 52428800;
@@ -28,7 +28,7 @@ export const requestShareUploadUrlBodySizeMax = 52428800;
 export const RequestShareUploadUrlBody = zod.object({
   "name": zod.string(),
   "size": zod.number().int().min(1).max(requestShareUploadUrlBodySizeMax),
-  "contentType": zod.string()
+  "contentType": zod.enum(['audio/mpeg', 'audio/mp3', 'audio/wav'])
 })
 
 export const RequestShareUploadUrlResponse = zod.object({
@@ -58,7 +58,7 @@ export const ListSharedAudioResponse = zod.array(ListSharedAudioResponseItem)
 
 
 /**
- * Registers an uploaded processed WAV file in the public audio library.
+ * Registers an uploaded processed MP3 or WAV file in the public audio library.
  * @summary Publish processed audio
  */
 export const createSharedAudioBodyTitleMax = 120;

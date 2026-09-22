@@ -141,7 +141,7 @@ export const getRequestShareUploadUrlUrl = () => {
 }
 
 /**
- * Returns a short-lived upload URL for a processed WAV file.
+ * Returns a short-lived upload URL for a processed MP3 or WAV file.
  * @summary Request a public audio upload URL
  */
 export const requestShareUploadUrl = async (shareUploadRequest: ShareUploadRequest, options?: Parameters<typeof customFetch>[1]): Promise<ShareUploadResponse> => {
@@ -291,7 +291,7 @@ export const getCreateSharedAudioUrl = () => {
 }
 
 /**
- * Registers an uploaded processed WAV file in the public audio library.
+ * Registers an uploaded processed MP3 or WAV file in the public audio library.
  * @summary Publish processed audio
  */
 export const createSharedAudio = async (sharedAudioInput: SharedAudioInput, options?: Parameters<typeof customFetch>[1]): Promise<SharedAudio> => {
