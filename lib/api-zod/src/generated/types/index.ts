@@ -12,3 +12,6 @@ export * from './sharedAudioInput';
 export * from './shareUploadRequest';
 export * from './shareUploadRequestContentType';
 export * from './shareUploadResponse';
+export * from './videoAudioProcessRequest';
+export * from './videoAudioUploadRequest';
+export * from './videoAudioUploadResponse';

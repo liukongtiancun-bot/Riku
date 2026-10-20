@@ -24,7 +24,10 @@ import type {
   ShareUploadRequest,
   ShareUploadResponse,
   SharedAudio,
-  SharedAudioInput
+  SharedAudioInput,
+  VideoAudioProcessRequest,
+  VideoAudioUploadRequest,
+  VideoAudioUploadResponse
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -202,6 +205,150 @@ export const useRequestShareUploadUrl = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getRequestShareUploadUrlMutationOptions(options));
+    }
+
+export const getRequestVideoAudioUploadUrlUrl = () => {
+
+
+
+
+  return `/api/storage/video-audio/request-url`
+}
+
+/**
+ * Returns a short-lived upload URL for a video whose audio will be extracted on the server.
+ * @summary Request a temporary video upload URL
+ */
+export const requestVideoAudioUploadUrl = async (videoAudioUploadRequest: VideoAudioUploadRequest, options?: Parameters<typeof customFetch>[1]): Promise<VideoAudioUploadResponse> => {
+
+  return customFetch<VideoAudioUploadResponse>(getRequestVideoAudioUploadUrlUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(videoAudioUploadRequest)
+  }
+);}
+
+
+
+
+
+export const getRequestVideoAudioUploadUrlMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestVideoAudioUploadUrl>>, TError,{data: BodyType<VideoAudioUploadRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof requestVideoAudioUploadUrl>>, TError,{data: BodyType<VideoAudioUploadRequest>}, TContext> => {
+
+const mutationKey = ['requestVideoAudioUploadUrl'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof requestVideoAudioUploadUrl>>, {data: BodyType<VideoAudioUploadRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  requestVideoAudioUploadUrl(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RequestVideoAudioUploadUrlMutationResult = NonNullable<Awaited<ReturnType<typeof requestVideoAudioUploadUrl>>>
+    export type RequestVideoAudioUploadUrlMutationBody = BodyType<VideoAudioUploadRequest>
+    export type RequestVideoAudioUploadUrlMutationError = ErrorType<void>
+
+    /**
+ * @summary Request a temporary video upload URL
+ */
+export const useRequestVideoAudioUploadUrl = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestVideoAudioUploadUrl>>, TError,{data: BodyType<VideoAudioUploadRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof requestVideoAudioUploadUrl>>,
+        TError,
+        {data: BodyType<VideoAudioUploadRequest>},
+        TContext
+      > => {
+      return useMutation(getRequestVideoAudioUploadUrlMutationOptions(options));
+    }
+
+export const getProcessVideoAudioUrl = () => {
+
+
+
+
+  return `/api/storage/video-audio`
+}
+
+/**
+ * Downloads a temporary video from object storage, extracts its first audio track with FFmpeg, and returns MP3 audio.
+ * @summary Extract MP3 audio from a temporary video
+ */
+export const processVideoAudio = async (videoAudioProcessRequest: VideoAudioProcessRequest, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getProcessVideoAudioUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(videoAudioProcessRequest)
+  }
+);}
+
+
+
+
+
+export const getProcessVideoAudioMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof processVideoAudio>>, TError,{data: BodyType<VideoAudioProcessRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof processVideoAudio>>, TError,{data: BodyType<VideoAudioProcessRequest>}, TContext> => {
+
+const mutationKey = ['processVideoAudio'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof processVideoAudio>>, {data: BodyType<VideoAudioProcessRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  processVideoAudio(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ProcessVideoAudioMutationResult = NonNullable<Awaited<ReturnType<typeof processVideoAudio>>>
+    export type ProcessVideoAudioMutationBody = BodyType<VideoAudioProcessRequest>
+    export type ProcessVideoAudioMutationError = ErrorType<void>
+
+    /**
+ * @summary Extract MP3 audio from a temporary video
+ */
+export const useProcessVideoAudio = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof processVideoAudio>>, TError,{data: BodyType<VideoAudioProcessRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof processVideoAudio>>,
+        TError,
+        {data: BodyType<VideoAudioProcessRequest>},
+        TContext
+      > => {
+      return useMutation(getProcessVideoAudioMutationOptions(options));
     }
 
 export const getListSharedAudioUrl = () => {

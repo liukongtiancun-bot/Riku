@@ -11,7 +11,7 @@ type AppStatus = 'idle' | 'ready' | 'processing' | 'error';
 type InputKind = 'audio' | 'video';
 
 const MAX_AUDIO_INPUT_BYTES = 50 * 1024 * 1024;
-const MAX_VIDEO_INPUT_BYTES = 200 * 1024 * 1024;
+const MAX_VIDEO_INPUT_BYTES = 500 * 1024 * 1024;
 
 const presets = [
   { name: 'やさしく', detail: '自然なあたたかさ', amount: 34, color: 'teal' },
@@ -114,98 +114,117 @@ async function decodeAudioFile(file: File) {
   }
 }
 
-function waitForEvent<T extends Event>(target: EventTarget, eventName: string) {
-  return new Promise<T>((resolve, reject) => {
-    const handleEvent = (event: Event) => {
-      cleanup();
-      resolve(event as T);
-    };
-    const handleError = () => {
-      cleanup();
-      reject(new Error(`Media event failed: ${eventName}`));
-    };
-    const cleanup = () => {
-      target.removeEventListener(eventName, handleEvent);
-      target.removeEventListener('error', handleError);
-    };
-    target.addEventListener(eventName, handleEvent, { once: true });
-    target.addEventListener('error', handleError, { once: true });
+function getVideoContentType(file: File) {
+  if (file.type.startsWith('video/')) return file.type;
+  const extension = file.name.split('.').pop()?.toLowerCase();
+  const contentTypes: Record<string, string> = {
+    mp4: 'video/mp4',
+    mov: 'video/quicktime',
+    m4v: 'video/x-m4v',
+    webm: 'video/webm',
+    avi: 'video/x-msvideo',
+    mkv: 'video/x-matroska',
+  };
+  return (extension && contentTypes[extension]) || 'video/mp4';
+}
+
+function uploadToSignedUrl(
+  file: File,
+  uploadUrl: string,
+  contentType: string,
+  onProgress: (percent: number) => void,
+) {
+  return new Promise<void>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('PUT', uploadUrl);
+    request.setRequestHeader('Content-Type', contentType);
+    request.timeout = 60 * 60 * 1000;
+    request.upload.addEventListener('progress', (event) => {
+      if (event.lengthComputable) {
+        onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+      }
+    });
+    request.addEventListener('load', () => {
+      if (request.status >= 200 && request.status < 300) {
+        onProgress(100);
+        resolve();
+      } else {
+        reject(new Error(`動画のアップロードに失敗しました（${request.status}）。通信状態を確認して再試行してください。`));
+      }
+    });
+    request.addEventListener('error', () => {
+      reject(new Error('動画のアップロードに失敗しました。ネットワーク接続を確認してください。'));
+    });
+    request.addEventListener('timeout', () => {
+      reject(new Error('動画のアップロードがタイムアウトしました。ネットワーク接続を確認して再試行してください。'));
+    });
+    request.addEventListener('abort', () => {
+      reject(new Error('動画のアップロードが中断されました。'));
+    });
+    request.send(file);
   });
 }
 
-async function extractVideoAudio(file: File) {
-  if (typeof MediaRecorder === 'undefined') {
-    throw new Error('This browser does not support audio recording.');
+async function extractVideoAudioOnServer(
+  file: File,
+  onProgress: (percent: number) => void,
+  onStage: (message: string) => void,
+) {
+  const contentType = getVideoContentType(file);
+  const uploadRequest = await fetch('/api/storage/video-audio/request-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: file.name,
+      size: file.size,
+      contentType,
+    }),
+  });
+  if (!uploadRequest.ok) {
+    throw new Error('動画のアップロードを準備できませんでした。時間をおいて再試行してください。');
+  }
+  const { uploadURL, objectPath } = await uploadRequest.json() as {
+    uploadURL: string;
+    objectPath: string;
+  };
+  onStage('動画をサーバーへアップロード中（0%）…');
+  await uploadToSignedUrl(file, uploadURL, contentType, (percent) => {
+    onProgress(percent);
+    onStage(`動画をサーバーへアップロード中（${percent}%）…`);
+  });
+
+  onStage('サーバーで動画から音声をMP3に変換中…');
+  const processResponse = await fetch('/api/storage/video-audio', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ objectPath }),
+  });
+  if (!processResponse.ok) {
+    let serverMessage = '';
+    try {
+      const responseBody = await processResponse.json() as { error?: string };
+      serverMessage = responseBody.error || '';
+    } catch {
+      // Keep a user-facing fallback below when the server response isn't JSON.
+    }
+    if (processResponse.status === 429) {
+      throw new Error('現在サーバーが混み合っています。少し待ってから再試行してください。');
+    }
+    if (processResponse.status === 422) {
+      throw new Error('動画から音声を確認できませんでした。音声付きの動画を選択してください。');
+    }
+    throw new Error(serverMessage
+      ? `動画の音声変換に失敗しました（${serverMessage}）。`
+      : '動画の音声変換に失敗しました。時間をおいて再試行してください。');
   }
 
-  const video = document.createElement('video');
-  const objectUrl = URL.createObjectURL(file);
+  onStage('MP3を読み込んで加工の準備中…');
   const audioContext = new AudioContext();
-  let recorder: MediaRecorder | null = null;
-
   try {
-    video.preload = 'auto';
-    video.playsInline = true;
-    video.muted = true;
-    video.src = objectUrl;
-    video.load();
-    await waitForEvent(video, 'loadedmetadata');
-
-    if (!Number.isFinite(video.duration) || video.duration <= 0) {
-      throw new Error('Video duration is unavailable.');
-    }
-
-    const source = audioContext.createMediaElementSource(video);
-    const destination = audioContext.createMediaStreamDestination();
-    source.connect(destination);
-    await audioContext.resume();
-    const mimeType = [
-      'audio/webm;codecs=opus',
-      'audio/webm',
-      'audio/mp4',
-      'audio/ogg;codecs=opus',
-    ].find((candidate) => MediaRecorder.isTypeSupported(candidate));
-    recorder = new MediaRecorder(
-      destination.stream,
-      mimeType ? { mimeType } : undefined,
-    );
-    const chunks: Blob[] = [];
-    recorder.addEventListener('dataavailable', (event) => {
-      if (event.data.size > 0) chunks.push(event.data);
-    });
-    const recordingFinished = new Promise<void>((resolve, reject) => {
-      recorder?.addEventListener('stop', () => resolve(), { once: true });
-      recorder?.addEventListener('error', () => reject(new Error('Video recording failed.')), { once: true });
-    });
-
-    recorder.start(250);
-    await video.play();
-    await waitForEvent(video, 'ended');
-    recorder.requestData();
-    recorder.stop();
-    await recordingFinished;
-
-    const recordedAudio = new Blob(chunks, {
-      type: recorder.mimeType || mimeType || 'audio/webm',
-    });
-    if (recordedAudio.size === 0) {
-      throw new Error('No audio was found in the video.');
-    }
-    return await audioContext.decodeAudioData(await recordedAudio.arrayBuffer());
+    return await audioContext.decodeAudioData(await processResponse.arrayBuffer());
   } finally {
-    recorder?.stream.getTracks().forEach((track) => track.stop());
-    video.pause();
-    video.removeAttribute('src');
-    video.load();
-    URL.revokeObjectURL(objectUrl);
     await audioContext.close();
   }
-}
-
-async function decodeInputAudio(file: File) {
-  return getInputKind(file) === 'video'
-    ? extractVideoAudio(file)
-    : decodeAudioFile(file);
 }
 
 async function enhanceAudio(decoded: AudioBuffer, amount: number, use8D: boolean, cleanAudio: boolean, semitones: number) {
@@ -292,7 +311,7 @@ function Header({ hasTrack, onReset }: { hasTrack: boolean; onReset: () => void 
       <div className="flex items-center gap-2 sm:gap-4">
         <div className="hidden items-center gap-2 text-[11px] text-[#87979c] sm:flex" data-testid="status-local">
           <span className="h-1.5 w-1.5 rounded-full bg-[#6fbbb7]" />
-            ブラウザ内だけで処理
+            MP3は端末内 · 動画は抽出後に削除
         </div>
         {hasTrack && (
           <button type="button" onClick={onReset} className="flex items-center gap-2 rounded-lg px-2 py-2 text-xs text-[#9aabad] transition hover:bg-[#1b2831] hover:text-[#f1ece0]" data-testid="button-reset-track">
@@ -352,7 +371,7 @@ function EmptyState({ onFile, isDragging, onDragOver, onDragLeave, onDrop, error
             お気に入りのMP3を、もっと深く、もっと心地よく。ブラウザ内で数秒で仕上がります。
           </p>
           <div className="mt-9 flex flex-wrap gap-x-6 gap-y-3 text-xs text-[#73868d]">
-            <span className="flex items-center gap-2"><Check size={14} className="text-[#6fbbb7]" /> アップロード不要</span>
+            <span className="flex items-center gap-2"><Check size={14} className="text-[#6fbbb7]" /> MP3はアップロード不要</span>
             <span className="flex items-center gap-2"><Check size={14} className="text-[#6fbbb7]" /> すぐに試聴</span>
             <span className="flex items-center gap-2"><Check size={14} className="text-[#6fbbb7]" /> 無料で利用</span>
           </div>
@@ -376,8 +395,9 @@ function EmptyState({ onFile, isDragging, onDragOver, onDragLeave, onDrop, error
                  ファイルを選ぶ
               </button>
               <div className="mt-5 flex items-center justify-center gap-2 text-[10px] text-[#64777e]">
-                 <FileAudio size={13} /> MP3 50MB / 動画 200MBまで
+                 <FileAudio size={13} /> MP3 50MB / 動画 500MBまで
               </div>
+              <p className="mt-2 text-[10px] leading-5 text-[#64777e]">動画は音声抽出のため一時アップロードし、処理後に削除します。</p>
             </div>
           </div>
         </section>
@@ -691,7 +711,7 @@ function SharedAudioLibrary({ refreshToken }: { refreshToken: number }) {
   );
 }
 
-function Controls({ amount, onAmount, activePreset, onPreset, semitones, onSemitones, use8D, onUse8D, cleanAudio, onCleanAudio, onEnhance, isProcessing, hasProcessed }: {
+function Controls({ amount, onAmount, activePreset, onPreset, semitones, onSemitones, use8D, onUse8D, cleanAudio, onCleanAudio, onEnhance, isProcessing, processingMessage, hasProcessed }: {
   amount: number;
   onAmount: (amount: number) => void;
   activePreset: number | null;
@@ -704,6 +724,7 @@ function Controls({ amount, onAmount, activePreset, onPreset, semitones, onSemit
   onCleanAudio: (enabled: boolean) => void;
   onEnhance: () => void;
   isProcessing: boolean;
+  processingMessage: string;
   hasProcessed: boolean;
 }) {
   return (
@@ -782,13 +803,13 @@ function Controls({ amount, onAmount, activePreset, onPreset, semitones, onSemit
          <span className={`rounded-full px-2 py-1 font-mono-label text-[9px] ${cleanAudio ? 'bg-[#e9a05d]/20 text-[#f0bd88]' : 'bg-[#afbec1]/[0.08] text-[#73868d]'}`}>{cleanAudio ? 'オン' : 'オフ'}</span>
        </button>
       <button type="button" onClick={onEnhance} disabled={isProcessing} className="mt-7 flex w-full items-center justify-center gap-2 rounded-xl bg-[#e9a05d] px-4 py-3.5 text-sm font-bold text-[#17222a] transition hover:bg-[#f1b271] disabled:cursor-wait disabled:opacity-70" data-testid="button-enhance-audio">
-         {isProcessing ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-[#17222a]/30 border-t-[#17222a]" /> 重低音を加工中…</> : <><Sparkles size={16} /> {hasProcessed ? 'この設定で再加工' : '重低音をつける'}</>}
+          {isProcessing ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-[#17222a]/30 border-t-[#17222a]" /> {processingMessage}</> : <><Sparkles size={16} /> {hasProcessed ? 'この設定で再加工' : '重低音をつける'}</>}
       </button>
     </div>
   );
 }
 
-function LoadedState({ file, inputKind, originalUrl, processedUrl, outputName, setOutputName, amount, setAmount, activePreset, setActivePreset, semitones, setSemitones, use8D, setUse8D, cleanAudio, setCleanAudio, status, error, shareUrl, isSharing, shareError, onEnhance, onShare, onReset }: {
+function LoadedState({ file, inputKind, originalUrl, processedUrl, outputName, setOutputName, amount, setAmount, activePreset, setActivePreset, semitones, setSemitones, use8D, setUse8D, cleanAudio, setCleanAudio, status, processingMessage, error, shareUrl, isSharing, shareError, onEnhance, onShare, onReset }: {
   file: File;
   inputKind: InputKind;
   originalUrl: string;
@@ -806,6 +827,7 @@ function LoadedState({ file, inputKind, originalUrl, processedUrl, outputName, s
   cleanAudio: boolean;
   setCleanAudio: (enabled: boolean) => void;
   status: AppStatus;
+  processingMessage: string;
   error: string | null;
   shareUrl?: string;
   isSharing: boolean;
@@ -891,7 +913,7 @@ function LoadedState({ file, inputKind, originalUrl, processedUrl, outputName, s
         <div>
            <div className="mb-4 flex items-center gap-2 font-mono-label text-[10px] font-bold text-[#6fbbb7]"><span className="h-1.5 w-1.5 rounded-full bg-[#6fbbb7]" /> 準備完了</div>
            <h1 className="text-[clamp(2.4rem,5vw,4.6rem)] font-semibold leading-[0.94] tracking-[-0.065em] text-[#f1ece0]" data-testid="heading-ready">音をもっと<span className="text-[#e9a05d]">響かせる。</span></h1>
-           <p className="mt-4 text-sm text-[#829399]">ファイルは端末内にあります。重低音を調整して、違いを聴いてみましょう。</p>
+            <p className="mt-4 text-sm text-[#829399]">{inputKind === 'video' ? '動画をサーバーへ一時送信して音声を抽出します。抽出後に動画は削除され、音声の加工は端末内で行います。' : '音声は端末内で処理されます。重低音を調整して、違いを聴いてみましょう。'}</p>
         </div>
         <div className="flex items-center gap-2 rounded-xl border border-[#afbec1]/10 bg-[#17232b] px-3 py-2.5">
           <FileAudio size={17} className="text-[#e9a05d]" />
@@ -925,7 +947,7 @@ function LoadedState({ file, inputKind, originalUrl, processedUrl, outputName, s
           </div>
         </section>
         <section className="reveal reveal-delay-2">
-            <Controls amount={amount} onAmount={(value) => { setAmount(value); setActivePreset(null); }} activePreset={activePreset} onPreset={(value) => { setAmount(value); setActivePreset(value); }} semitones={semitones} onSemitones={setSemitones} use8D={use8D} onUse8D={setUse8D} cleanAudio={cleanAudio} onCleanAudio={setCleanAudio} onEnhance={onEnhance} isProcessing={isProcessing} hasProcessed={Boolean(processedUrl)} />
+            <Controls amount={amount} onAmount={(value) => { setAmount(value); setActivePreset(null); }} activePreset={activePreset} onPreset={(value) => { setAmount(value); setActivePreset(value); }} semitones={semitones} onSemitones={setSemitones} use8D={use8D} onUse8D={setUse8D} cleanAudio={cleanAudio} onCleanAudio={setCleanAudio} onEnhance={onEnhance} isProcessing={isProcessing} processingMessage={processingMessage} hasProcessed={Boolean(processedUrl)} />
             {processedUrl && !isProcessing && <button type="button" onClick={download} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#6fbbb7]/35 bg-[#6fbbb7]/[0.08] px-4 py-3.5 text-sm font-bold text-[#9ed4d0] transition hover:border-[#6fbbb7]/70 hover:bg-[#6fbbb7]/[0.13]" data-testid="button-download-enhanced"><Download size={17} /> 加工済みMP3を保存</button>}
             {processedUrl && !isProcessing && <button type="button" onClick={onShare} disabled={isSharing || Boolean(shareUrl)} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#e9a05d]/35 bg-[#e9a05d]/[0.08] px-4 py-3.5 text-sm font-bold text-[#f0bd88] transition hover:border-[#e9a05d]/70 hover:bg-[#e9a05d]/[0.13] disabled:cursor-default disabled:opacity-70" data-testid="button-share-enhanced"><Share2 size={17} /> {isSharing ? '公開中…' : shareUrl ? '公開済み' : '公開して一覧に追加'}</button>}
             {shareUrl && !isSharing && <div className="mt-3 rounded-xl border border-[#6fbbb7]/25 bg-[#172d30]/50 p-3" data-testid="panel-share-link">
@@ -943,7 +965,7 @@ function LoadedState({ file, inputKind, originalUrl, processedUrl, outputName, s
         {[
            { icon: Zap, title: '音に厚みをプラス', body: '低音域を強調し、音がこもりすぎないように整えます。' },
            { icon: Headphones, title: '耳で聴き比べ', body: '元の音と加工後の音を切り替えて確認できます。' },
-           { icon: Download, title: '端末に保存', body: '加工結果を保存できます。音源が外部へ送られることはありません。' },
+           { icon: Download, title: '端末に保存', body: inputKind === 'video' ? '加工結果を保存できます。元動画は音声抽出後にサーバーから削除されます。' : '加工結果を端末に保存できます。音声が外部へ送信されることはありません。' },
         ].map(({ icon: Icon, title, body }) => <div key={title} className="rounded-xl border border-[#afbec1]/10 bg-[#17232b]/50 p-4"><Icon size={16} className="text-[#e9a05d]" /><div className="mt-3 text-xs font-semibold text-[#dce5e1]">{title}</div><p className="mt-1 text-[11px] leading-5 text-[#71848a]">{body}</p></div>)}
       </div>
     </main>
@@ -954,6 +976,7 @@ function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [outputName, setOutputName] = useState('bassline');
   const [status, setStatus] = useState<AppStatus>('idle');
+  const [processingMessage, setProcessingMessage] = useState('加工中…');
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [amount, setAmount] = useState(62);
@@ -973,6 +996,7 @@ function Home() {
   const chooseFile = (next?: File) => {
     if (!next) return;
     setError(null);
+    setProcessingMessage('加工中…');
     const nextInputKind = getInputKind(next);
     if (!nextInputKind) {
       setStatus('error');
@@ -984,7 +1008,7 @@ function Home() {
       : MAX_AUDIO_INPUT_BYTES;
     if (next.size > maxInputBytes) {
       setStatus('error');
-       setError(`${nextInputKind === 'video' ? '動画' : 'MP3'}が大きすぎます。${nextInputKind === 'video' ? '動画は200MB' : 'MP3は50MB'}まで選択できます。`);
+       setError(`${nextInputKind === 'video' ? '動画' : 'MP3'}が大きすぎます。${nextInputKind === 'video' ? '動画は500MB' : 'MP3は50MB'}まで選択できます。`);
       return;
     }
     if (processedUrl) URL.revokeObjectURL(processedUrl);
@@ -999,6 +1023,7 @@ function Home() {
     setCleanAudio(false);
     setFile(next);
     setStatus('ready');
+    setProcessingMessage('加工中…');
   };
 
   const enhance = async () => {
@@ -1006,16 +1031,32 @@ function Home() {
     setError(null);
     setStatus('processing');
     try {
-      const decoded = await decodeInputAudio(file);
+      const inputKind = getInputKind(file);
+      let decoded: AudioBuffer;
+      if (inputKind === 'video') {
+        decoded = await extractVideoAudioOnServer(
+          file,
+          () => undefined,
+          setProcessingMessage,
+        );
+      } else {
+        setProcessingMessage('音声を読み込み中…');
+        decoded = await decodeAudioFile(file);
+      }
+      setProcessingMessage('重低音などを加工してMP3に変換中…');
       const result = await enhanceAudio(decoded, amount, use8D, cleanAudio, semitones);
       if (processedUrl) URL.revokeObjectURL(processedUrl);
       setProcessedUrl(URL.createObjectURL(result));
       setShareUrl(undefined);
       setShareError(null);
       setStatus('ready');
-    } catch {
+    } catch (processingError) {
       setStatus('ready');
-       setError('このブラウザで音声を読み込めませんでした。動画に音声があるか確認し、別のファイルをお試しください。');
+      setError(processingError instanceof Error
+        ? processingError.message
+        : '音声を処理できませんでした。ファイルを確認して、もう一度お試しください。');
+    } finally {
+      setProcessingMessage('加工中…');
     }
   };
 
@@ -1074,6 +1115,7 @@ function Home() {
     setShareUrl(undefined);
     setShareError(null);
     setStatus('idle');
+    setProcessingMessage('加工中…');
     setError(null);
     setAmount(62);
     setActivePreset(62);
@@ -1092,11 +1134,11 @@ function Home() {
   return (
     <div className="app-shell min-h-[100dvh] text-[#f1ece0]">
       <Header hasTrack={Boolean(file)} onReset={reset} />
-       {file && status !== 'error' ? <LoadedState file={file} inputKind={getInputKind(file) || 'audio'} originalUrl={objectUrl} processedUrl={processedUrl} outputName={outputName} setOutputName={setOutputName} amount={amount} setAmount={setAmount} activePreset={activePreset} setActivePreset={setActivePreset} semitones={semitones} setSemitones={setSemitones} use8D={use8D} setUse8D={setUse8D} cleanAudio={cleanAudio} setCleanAudio={setCleanAudio} status={status} error={error} shareUrl={shareUrl} isSharing={isSharing} shareError={shareError} onEnhance={enhance} onShare={share} onReset={reset} /> : <EmptyState onFile={chooseFile} error={error} isDragging={dragging} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop} />}
+       {file && status !== 'error' ? <LoadedState file={file} inputKind={getInputKind(file) || 'audio'} originalUrl={objectUrl} processedUrl={processedUrl} outputName={outputName} setOutputName={setOutputName} amount={amount} setAmount={setAmount} activePreset={activePreset} setActivePreset={setActivePreset} semitones={semitones} setSemitones={setSemitones} use8D={use8D} setUse8D={setUse8D} cleanAudio={cleanAudio} setCleanAudio={setCleanAudio} status={status} processingMessage={processingMessage} error={error} shareUrl={shareUrl} isSharing={isSharing} shareError={shareError} onEnhance={enhance} onShare={share} onReset={reset} /> : <EmptyState onFile={chooseFile} error={error} isDragging={dragging} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop} />}
        <SharedAudioLibrary refreshToken={libraryRefreshToken} />
       <footer className="mx-auto flex w-full max-w-[1180px] items-center justify-between border-t border-[#afbec1]/10 px-5 py-6 text-[10px] text-[#5e7178] sm:px-8 lg:px-10" data-testid="footer-main">
          <span className="font-mono-label">BASSLINE / 2024</span>
-           <span className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-[#6fbbb7]" /> 音声は端末内で処理 · 公開時のみ保存</span>
+          <span className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-[#6fbbb7]" /> 動画音声は抽出後に削除 · 音声加工は端末内</span>
       </footer>
     </div>
   );

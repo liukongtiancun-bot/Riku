@@ -37,7 +37,7 @@ export class ObjectStorageService {
     return dir.replace(/\/$/, "");
   }
 
-  async getObjectEntityUploadURL() {
+  async getObjectEntityUploadURL(ttlSec = 900) {
     const objectPath = `/objects/uploads/${randomUUID()}`;
     const { bucketName, objectName } = parseObjectPath(
       `${this.getPrivateObjectDir()}${objectPath.slice("/objects".length)}`,
@@ -46,7 +46,7 @@ export class ObjectStorageService {
       bucketName,
       objectName,
       method: "PUT",
-      ttlSec: 900,
+      ttlSec,
     });
     return { uploadURL, objectPath };
   }
@@ -65,6 +65,11 @@ export class ObjectStorageService {
       method: "GET",
       ttlSec: 3600,
     });
+  }
+
+  async deleteObjectEntity(objectPath: string) {
+    const objectFile = await this.getObjectEntityFile(objectPath);
+    await objectFile.delete();
   }
 
   async getObjectEntityFile(objectPath: string): Promise<File> {

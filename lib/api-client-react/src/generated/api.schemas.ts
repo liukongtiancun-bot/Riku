@@ -34,6 +34,32 @@ export interface ShareUploadResponse {
   expiresInSeconds: number;
 }
 
+export interface VideoAudioUploadRequest {
+  /**
+     * @minLength 1
+     * @maxLength 255
+     */
+  name: string;
+  /**
+     * @minimum 1
+     * @maximum 524288000
+     */
+  size: number;
+  /** @pattern ^video/ */
+  contentType: string;
+}
+
+export interface VideoAudioUploadResponse {
+  uploadURL: string;
+  objectPath: string;
+  expiresInSeconds: number;
+}
+
+export interface VideoAudioProcessRequest {
+  /** @pattern ^/objects/uploads/[a-z0-9-]+$ */
+  objectPath: string;
+}
+
 export interface SharedAudio {
   id: string;
   title: string;

@@ -39,6 +39,44 @@ export const RequestShareUploadUrlResponse = zod.object({
 
 
 /**
+ * Returns a short-lived upload URL for a video whose audio will be extracted on the server.
+ * @summary Request a temporary video upload URL
+ */
+export const requestVideoAudioUploadUrlBodyNameMax = 255;
+
+export const requestVideoAudioUploadUrlBodySizeMax = 524288000;
+
+export const requestVideoAudioUploadUrlBodyContentTypeRegExp = new RegExp('^video');
+
+
+export const RequestVideoAudioUploadUrlBody = zod.object({
+  "name": zod.string().min(1).max(requestVideoAudioUploadUrlBodyNameMax),
+  "size": zod.number().int().min(1).max(requestVideoAudioUploadUrlBodySizeMax),
+  "contentType": zod.string().regex(requestVideoAudioUploadUrlBodyContentTypeRegExp)
+})
+
+export const RequestVideoAudioUploadUrlResponse = zod.object({
+  "uploadURL": zod.string().url(),
+  "objectPath": zod.string(),
+  "expiresInSeconds": zod.number().int()
+})
+
+
+/**
+ * Downloads a temporary video from object storage, extracts its first audio track with FFmpeg, and returns MP3 audio.
+ * @summary Extract MP3 audio from a temporary video
+ */
+export const processVideoAudioBodyObjectPathRegExp = new RegExp('^/objects/uploads/[a-z0-9-]+$');
+
+
+export const ProcessVideoAudioBody = zod.object({
+  "objectPath": zod.string().regex(processVideoAudioBodyObjectPathRegExp)
+})
+
+export const ProcessVideoAudioResponse = zod.unknown()
+
+
+/**
  * Returns all processed audio tracks that have been published for public listening.
  * @summary List publicly shared processed audio
  */
