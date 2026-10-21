@@ -50,6 +50,11 @@ function getSharedAudioUrl(objectPath: string) {
   return `/api/storage${objectPath}`;
 }
 
+function getMediaArtworkUrl() {
+  const baseUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
+  return new URL('site-icon.png', baseUrl).href;
+}
+
 function getFileStem(fileName: string) {
   return fileName.replace(/\.[^/.]+$/, '');
 }
@@ -566,12 +571,17 @@ function SharedAudioPlaybackProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!currentTrack || typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    if (!currentTrack || typeof navigator === 'undefined' || !('mediaSession' in navigator) || typeof MediaMetadata === 'undefined') return;
     const mediaSession = navigator.mediaSession;
     mediaSession.metadata = new MediaMetadata({
       title: currentTrack.title,
       artist: 'BASSLINE 公開音源',
       album: 'みんなの編集済み音源',
+      artwork: [{
+        src: getMediaArtworkUrl(),
+        sizes: '1024x1024',
+        type: 'image/png',
+      }],
     });
     const audio = audioRef.current;
     const setAction = (action: MediaSessionAction, handler: MediaSessionActionHandler) => {
@@ -588,6 +598,7 @@ function SharedAudioPlaybackProvider({ children }: { children: ReactNode }) {
     return () => {
       try {
         mediaSession.metadata = null;
+        mediaSession.playbackState = 'none';
         mediaSession.setActionHandler('play', null);
         mediaSession.setActionHandler('pause', null);
         mediaSession.setActionHandler('seekbackward', null);
@@ -597,6 +608,13 @@ function SharedAudioPlaybackProvider({ children }: { children: ReactNode }) {
       }
     };
   }, [currentTrack, seek]);
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    navigator.mediaSession.playbackState = currentTrack
+      ? (isPlaying ? 'playing' : 'paused')
+      : 'none';
+  }, [currentTrack, isPlaying]);
 
   const value = useMemo(() => ({
     currentTrack,
@@ -838,10 +856,19 @@ function LoadedState({ file, inputKind, originalUrl, processedUrl, outputName, s
   const [duration, setDuration] = useState(0);
   const [processedDuration, setProcessedDuration] = useState(0);
   const [playing, setPlaying] = useState<Track | null>(null);
+  const [sessionTrack, setSessionTrack] = useState<Track>('original');
   const [time, setTime] = useState(0);
   const originalAudio = useRef<HTMLAudioElement | null>(null);
   const processedAudio = useRef<HTMLAudioElement | null>(null);
   const isProcessing = status === 'processing';
+
+  const seek = useCallback((value: number, track: Track) => {
+    const activeAudio = track === 'processed' ? processedAudio.current : originalAudio.current;
+    const target = Math.min(value, activeAudio?.duration || value);
+    if (originalAudio.current) originalAudio.current.currentTime = Math.min(target, originalAudio.current.duration || target);
+    if (processedAudio.current) processedAudio.current.currentTime = Math.min(target, processedAudio.current.duration || target);
+    setTime(target);
+  }, []);
 
   useEffect(() => {
     const original = new Audio(originalUrl);
@@ -874,9 +901,73 @@ function LoadedState({ file, inputKind, originalUrl, processedUrl, outputName, s
     };
    }, [originalUrl, processedUrl]);
 
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator) || typeof MediaMetadata === 'undefined') return;
+    const mediaSession = navigator.mediaSession;
+    const title = sessionTrack === 'processed'
+      ? sanitizeFileStem(outputName)
+      : getFileStem(file.name);
+    const audio = sessionTrack === 'processed' ? processedAudio.current : originalAudio.current;
+
+    mediaSession.metadata = new MediaMetadata({
+      title: title || file.name,
+      artist: 'BASSLINE',
+      album: sessionTrack === 'processed' ? '加工済みMP3' : '元の音源',
+      artwork: [{
+        src: getMediaArtworkUrl(),
+        sizes: '1024x1024',
+        type: 'image/png',
+      }],
+    });
+
+    const setAction = (action: MediaSessionAction, handler: MediaSessionActionHandler) => {
+      try {
+        mediaSession.setActionHandler(action, handler);
+      } catch {
+        // Some browsers expose Media Session but do not support every action.
+      }
+    };
+    setAction('play', () => {
+      if (audio) void audio.play().then(() => setPlaying(sessionTrack)).catch(() => setPlaying(null));
+    });
+    setAction('pause', () => {
+      audio?.pause();
+      setPlaying(null);
+    });
+    setAction('seekbackward', (details) => {
+      seek(Math.max(0, (audio?.currentTime || 0) - (details.seekOffset || 10)), sessionTrack);
+    });
+    setAction('seekforward', (details) => {
+      seek((audio?.currentTime || 0) + (details.seekOffset || 10), sessionTrack);
+    });
+    setAction('seekto', (details) => {
+      if (typeof details.seekTime === 'number') seek(details.seekTime, sessionTrack);
+    });
+
+    return () => {
+      try {
+        mediaSession.metadata = null;
+        mediaSession.playbackState = 'none';
+        mediaSession.setActionHandler('play', null);
+        mediaSession.setActionHandler('pause', null);
+        mediaSession.setActionHandler('seekbackward', null);
+        mediaSession.setActionHandler('seekforward', null);
+        mediaSession.setActionHandler('seekto', null);
+      } catch {
+        // Ignore cleanup errors from unsupported Media Session actions.
+      }
+    };
+  }, [file.name, outputName, processedUrl, seek, sessionTrack]);
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    navigator.mediaSession.playbackState = playing === sessionTrack ? 'playing' : 'paused';
+  }, [playing, sessionTrack]);
+
   const togglePlay = (track: Track) => {
     const audio = track === 'original' ? originalAudio.current : processedAudio.current;
     if (!audio) return;
+    setSessionTrack(track);
     if (playing === track) {
       audio.pause();
       setPlaying(null);
@@ -886,14 +977,6 @@ function LoadedState({ file, inputKind, originalUrl, processedUrl, outputName, s
     processedAudio.current?.pause();
     audio.currentTime = time;
     void audio.play().then(() => setPlaying(track)).catch(() => setPlaying(null));
-  };
-
-   const seek = (value: number, track: Track) => {
-     const activeAudio = track === 'processed' ? processedAudio.current : originalAudio.current;
-     const target = Math.min(value, activeAudio?.duration || value);
-     if (originalAudio.current) originalAudio.current.currentTime = Math.min(target, originalAudio.current.duration || target);
-     if (processedAudio.current) processedAudio.current.currentTime = Math.min(target, processedAudio.current.duration || target);
-     setTime(target);
   };
 
   const download = () => {
