@@ -1,2 +1,2 @@
 - [API codegen naming](api-codegen-naming.md) — generated runtime validators are operation-id-based, not always schema-name-based.
-- [Browser MP3 encoding](browser-mp3-encoding.md) — client-side output uses lamejs with a local TypeScript declaration.
+- [Browser MP3 encoding](browser-mp3-encoding.md) — use the maintained lamejs fork in a worker; the original fails in Vite browser bundles.

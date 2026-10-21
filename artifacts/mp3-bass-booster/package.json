@@ -75,6 +75,6 @@
     "zod": "catalog:"
   },
   "dependencies": {
-    "lamejs": "^1.2.1"
+    "@breezystack/lamejs": "1.2.7"
   }
 }

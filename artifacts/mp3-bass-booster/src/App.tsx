@@ -1,10 +1,10 @@
 import { createContext, type ChangeEvent, type CSSProperties, type DragEvent, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { AudioLines, Check, CircleAlert, Copy, Download, ExternalLink, FileAudio, Headphones, ListMusic, Pause, Play, Repeat2, RotateCcw, Share2, ShieldCheck, Sparkles, Upload, Volume2, X, Zap } from 'lucide-react';
+import { AudioLines, Check, CircleAlert, Copy, Download, ExternalLink, FileAudio, FileVideo2, Headphones, ListMusic, LockKeyhole, Music2, Pause, Play, Repeat2, RotateCcw, Share2, ShieldCheck, Sparkles, Upload, Volume2, X, Zap } from 'lucide-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 import type { SharedAudio } from '@workspace/api-client-react';
-import lamejs from 'lamejs';
+import lamejs from '@breezystack/lamejs';
 
 type Track = 'original' | 'processed';
 type AppStatus = 'idle' | 'ready' | 'processing' | 'error';
@@ -70,39 +70,31 @@ function getInputKind(file: File): InputKind | null {
   return null;
 }
 
-function bufferToMp3(buffer: AudioBuffer) {
+function bufferToMp3(buffer: AudioBuffer, onProgress: (percent: number) => void) {
   const channels = buffer.numberOfChannels > 1 ? 2 : 1;
-  const encoder = new lamejs.Mp3Encoder(channels, buffer.sampleRate, 192);
-  const sampleBlockSize = 1152;
   const left = buffer.getChannelData(0);
   const right = channels === 2 ? buffer.getChannelData(1) : undefined;
-  const mp3Data: Int8Array[] = [];
-
-  const toInt16 = (data: Float32Array, start: number, end: number) => {
-    const samples = new Int16Array(end - start);
-    for (let index = start; index < end; index += 1) {
-      const sample = Math.max(-1, Math.min(1, data[index]));
-      samples[index - start] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
-    }
-    return samples;
-  };
-
-  for (let offset = 0; offset < buffer.length; offset += sampleBlockSize) {
-    const end = Math.min(offset + sampleBlockSize, buffer.length);
-    const encoded = right
-      ? encoder.encodeBuffer(toInt16(left, offset, end), toInt16(right, offset, end))
-      : encoder.encodeBuffer(toInt16(left, offset, end));
-    if (encoded.length > 0) mp3Data.push(encoded);
-  }
-
-  const flushed = encoder.flush();
-  if (flushed.length > 0) mp3Data.push(flushed);
-  const mp3Parts = mp3Data.map((chunk) => {
-    const part = new ArrayBuffer(chunk.byteLength);
-    new Uint8Array(part).set(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
-    return part;
+  const worker = new Worker(new URL('./mp3Encoder.worker.ts', import.meta.url), { type: 'module' });
+  return new Promise<Blob>((resolve, reject) => {
+    worker.addEventListener('message', (event: MessageEvent<{ type: string; percent?: number; blob?: Blob; message?: string }>) => {
+      if (event.data.type === 'progress' && typeof event.data.percent === 'number') {
+        onProgress(event.data.percent);
+      } else if (event.data.type === 'complete' && event.data.blob) {
+        worker.terminate();
+        onProgress(100);
+        resolve(event.data.blob);
+      } else if (event.data.type === 'error') {
+        worker.terminate();
+        reject(new Error(event.data.message || 'MP3を書き出せませんでした。'));
+      }
+    });
+    worker.addEventListener('error', (event) => {
+      worker.terminate();
+      reject(new Error(event.message || 'MP3を書き出せませんでした。'));
+    });
+    const transfer = right ? [left.buffer, right.buffer] : [left.buffer];
+    worker.postMessage({ type: 'encode', channels, sampleRate: buffer.sampleRate, left, right }, transfer);
   });
-  return new Blob(mp3Parts, { type: 'audio/mpeg' });
 }
 
 async function decodeAudioFile(file: File) {
@@ -227,7 +219,7 @@ async function extractVideoAudioOnServer(
   }
 }
 
-async function enhanceAudio(decoded: AudioBuffer, amount: number, use8D: boolean, cleanAudio: boolean, semitones: number) {
+async function enhanceAudio(decoded: AudioBuffer, amount: number, use8D: boolean, cleanAudio: boolean, semitones: number, onEncodingProgress: (percent: number) => void) {
   const channels = decoded.numberOfChannels;
   const pitchRate = Math.pow(2, semitones / 12);
   const tailPaddingSeconds = 0.25;
@@ -287,7 +279,7 @@ async function enhanceAudio(decoded: AudioBuffer, amount: number, use8D: boolean
   input.connect(lowShelf).connect(compressor).connect(safetyGain).connect(spatialPanner).connect(limiter).connect(offline.destination);
   bufferSource.start();
   const rendered = await offline.startRendering();
-  return bufferToMp3(rendered);
+  return bufferToMp3(rendered, onEncodingProgress);
 }
 
 function Brand() {
@@ -326,7 +318,7 @@ function Header({ hasTrack, onReset }: { hasTrack: boolean; onReset: () => void 
 
 function BoothGraphic() {
   return (
-    <div className="relative mx-auto h-56 w-56 sm:h-64 sm:w-64" aria-hidden="true">
+    <div className="relative mx-auto h-40 w-40 sm:h-44 sm:w-44" aria-hidden="true">
       <div className="booth-orbit absolute inset-0 rounded-full" />
       <div className="absolute inset-[15%] rounded-full border border-[#efaa60]/15" />
       <div className="absolute inset-[29%] rounded-full bg-[#202d35] shadow-[0_0_70px_rgba(232,157,78,0.09)]" />
@@ -356,21 +348,21 @@ function EmptyState({ onFile, isDragging, onDragOver, onDragLeave, onDrop, error
   const inputRef = useRef<HTMLInputElement>(null);
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => onFile(event.target.files?.[0]);
   return (
-    <main className="mx-auto w-full max-w-[1180px] px-5 pb-20 pt-10 sm:px-8 sm:pt-16 lg:px-10 lg:pt-20">
+    <main className="mx-auto w-full max-w-[1180px] px-5 pb-16 pt-6 sm:px-8 sm:pt-12 lg:px-10 lg:pt-16">
       {error && <div className="mb-6 flex items-start gap-3 rounded-xl border border-[#d97962]/30 bg-[#d97962]/[0.08] px-4 py-3 text-sm text-[#e6a293]" role="alert" data-testid="alert-upload-error"><CircleAlert size={17} className="mt-0.5 shrink-0" /><span>{error}</span></div>}
-      <div className="grid items-center gap-14 lg:grid-cols-[0.82fr_1.18fr] lg:gap-20">
+      <div className="grid items-center gap-8 lg:grid-cols-[1fr_1.05fr] lg:gap-12">
         <section className="reveal">
-          <div className="mb-5 flex items-center gap-3">
+          <div className="mb-4 flex items-center gap-3">
             <span className="font-mono-label text-[10px] font-bold text-[#6fbbb7]" data-testid="text-kicker">いつもの音を、もっと深く</span>
             <span className="h-px w-12 bg-[#6fbbb7]/40" />
           </div>
-           <h1 className="max-w-[560px] text-[clamp(3.15rem,7vw,6.2rem)] font-semibold leading-[0.92] tracking-[-0.075em] text-[#f1ece0]" data-testid="heading-empty">
+           <h1 className="max-w-[560px] text-[clamp(2.6rem,5.2vw,4.5rem)] font-semibold leading-[1.02] tracking-[-0.055em] text-[#f1ece0]" data-testid="heading-empty">
              音楽をもっと<br /><span className="text-[#e9a05d]">深く響かせる。</span>
           </h1>
-          <p className="mt-7 max-w-[450px] text-base leading-7 text-[#9aabad] sm:text-lg">
+           <p className="mt-5 max-w-[450px] text-sm leading-6 text-[#9aabad] sm:text-base sm:leading-7">
             お気に入りのMP3を、もっと深く、もっと心地よく。ブラウザ内で数秒で仕上がります。
           </p>
-          <div className="mt-9 flex flex-wrap gap-x-6 gap-y-3 text-xs text-[#73868d]">
+          <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-[#73868d]">
             <span className="flex items-center gap-2"><Check size={14} className="text-[#6fbbb7]" /> MP3はアップロード不要</span>
             <span className="flex items-center gap-2"><Check size={14} className="text-[#6fbbb7]" /> すぐに試聴</span>
             <span className="flex items-center gap-2"><Check size={14} className="text-[#6fbbb7]" /> 無料で利用</span>
@@ -378,7 +370,7 @@ function EmptyState({ onFile, isDragging, onDragOver, onDragLeave, onDrop, error
         </section>
         <section className="reveal reveal-delay-1">
           <div
-            className={`upload-panel group relative flex min-h-[425px] flex-col items-center justify-center overflow-hidden rounded-[2rem] p-7 text-center transition-all duration-300 sm:min-h-[475px] ${isDragging ? 'is-dragging' : ''}`}
+            className={`upload-panel group relative flex min-h-[360px] flex-col items-center justify-center overflow-hidden rounded-[2rem] p-5 text-center transition-all duration-300 sm:min-h-[420px] sm:p-7 ${isDragging ? 'is-dragging' : ''}`}
             onDragOver={onDragOver}
             onDragLeave={onDragLeave}
             onDrop={onDrop}
@@ -387,28 +379,35 @@ function EmptyState({ onFile, isDragging, onDragOver, onDragLeave, onDrop, error
             <div className="grid-lines pointer-events-none absolute inset-0 opacity-70" />
             <div className="relative z-10">
               <BoothGraphic />
-               <h2 className="mt-3 text-xl font-semibold text-[#f1ece0]" data-testid="heading-upload">MP3 / 動画を入れて始める</h2>
+                <h2 className="mt-3 text-lg font-semibold text-[#f1ece0] sm:text-xl" data-testid="heading-upload">MP3 / 動画を入れて始める</h2>
                <p className="mt-2 text-sm text-[#829399]">写真アプリや端末からファイルを選択</p>
                <input ref={inputRef} onChange={handleChange} type="file" accept=".mp3,audio/mpeg,audio/mp3,video/*,.mp4,.mov,.m4v,.webm" className="hidden" data-testid="input-audio-file" />
-               <button type="button" onClick={() => inputRef.current?.click()} className="mt-7 inline-flex items-center gap-2 rounded-xl bg-[#e9a05d] px-5 py-3 text-sm font-bold text-[#17222a] shadow-[0_10px_30px_rgba(225,151,73,0.18)] transition hover:-translate-y-0.5 hover:bg-[#f1b271] active:translate-y-0" data-testid="button-choose-mp3">
+                <button type="button" onClick={() => inputRef.current?.click()} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#e9a05d] px-5 py-3 text-sm font-bold text-[#17222a] shadow-[0_10px_30px_rgba(225,151,73,0.18)] transition hover:-translate-y-0.5 hover:bg-[#f1b271] active:translate-y-0" data-testid="button-choose-mp3">
                 <Upload size={17} />
                  ファイルを選ぶ
               </button>
-              <div className="mt-5 flex items-center justify-center gap-2 text-[10px] text-[#64777e]">
-                 <FileAudio size={13} /> MP3 50MB / 動画 500MBまで
+              <div className="upload-formats mt-4 grid w-full max-w-[390px] grid-cols-2 gap-2 text-left sm:mt-6">
+                <div className="upload-format">
+                  <FileAudio size={16} />
+                  <span><strong>MP3</strong><small>50MBまで · 端末内で処理</small></span>
+                </div>
+                <div className="upload-format upload-format-video">
+                  <FileVideo2 size={16} />
+                  <span><strong>動画</strong><small>500MBまで · 音声を抽出</small></span>
+                </div>
               </div>
-              <p className="mt-2 text-[10px] leading-5 text-[#64777e]">動画は音声抽出のため一時アップロードし、処理後に削除します。</p>
+              <p className="mt-3 flex items-start justify-center gap-1.5 text-[10px] leading-5 text-[#64777e]"><LockKeyhole size={12} className="mt-1 shrink-0" />動画は音声抽出のため一時アップロードし、処理後に削除します。</p>
             </div>
           </div>
         </section>
       </div>
-      <div className="mt-24 flex items-center gap-5 border-t border-[#afbec1]/10 pt-6 text-xs text-[#64777e] sm:mt-32" data-testid="text-privacy-note">
+      <div className="mt-10 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-[#afbec1]/10 pt-5 text-xs text-[#64777e] sm:mt-14 sm:gap-x-5 sm:pt-6" data-testid="text-privacy-note">
         <span className="font-mono-label text-[9px] text-[#e9a05d]">01</span>
         <span>曲を選ぶ</span>
-        <span className="h-px w-8 bg-[#afbec1]/20" />
+        <span className="hidden h-px w-8 bg-[#afbec1]/20 sm:block" />
         <span className="font-mono-label text-[9px] text-[#e9a05d]">02</span>
         <span>重低音を調整</span>
-        <span className="h-px w-8 bg-[#afbec1]/20" />
+        <span className="hidden h-px w-8 bg-[#afbec1]/20 sm:block" />
         <span className="font-mono-label text-[9px] text-[#e9a05d]">03</span>
         <span>保存して楽しむ</span>
       </div>
@@ -731,7 +730,7 @@ function Controls({ amount, onAmount, activePreset, onPreset, semitones, onSemit
     <div className="soft-card rounded-[1.5rem] p-5 sm:p-6" data-testid="panel-controls">
       <div className="flex items-start justify-between gap-4">
         <div>
-            <div className="font-mono-label text-[10px] font-bold text-[#6fbbb7]">重低音シェイパー</div>
+            <div className="flex items-center gap-2 font-mono-label text-[10px] font-bold text-[#6fbbb7]"><AudioLines size={14} /> 重低音シェイパー</div>
             <h2 className="mt-2 text-xl font-semibold text-[#f1ece0]">重低音の強さを調整</h2>
         </div>
            <div className="rounded-lg bg-[#e9a05d]/10 px-3 py-2 text-right">
@@ -747,7 +746,7 @@ function Controls({ amount, onAmount, activePreset, onPreset, semitones, onSemit
        </div>
        <div className="mt-7">
          <div className="mb-3 flex items-center justify-between">
-           <span className="font-mono-label text-[10px] text-[#829399]">キー調整</span>
+            <span className="flex items-center gap-2 font-mono-label text-[10px] text-[#829399]"><Music2 size={13} /> キー調整</span>
            <span className="font-mono-label text-sm font-bold text-[#e9a05d]" data-testid="text-key-value">{formatSemitones(semitones)} 半音</span>
          </div>
          <input type="range" min="-12" max="12" step="1" value={semitones} aria-label="キー調整" onChange={(event) => onSemitones(Number(event.target.value))} className="bass-slider w-full" style={{ '--bass-progress': `${((semitones + 12) / 24) * 100}%` } as CSSProperties} data-testid="input-key-shift" />
@@ -1044,7 +1043,15 @@ function Home() {
         decoded = await decodeAudioFile(file);
       }
       setProcessingMessage('重低音などを加工してMP3に変換中…');
-      const result = await enhanceAudio(decoded, amount, use8D, cleanAudio, semitones);
+      setProcessingMessage('音声を加工中…');
+      const result = await enhanceAudio(
+        decoded,
+        amount,
+        use8D,
+        cleanAudio,
+        semitones,
+        (percent) => setProcessingMessage(`MP3を書き出し中（${percent}%）…`),
+      );
       if (processedUrl) URL.revokeObjectURL(processedUrl);
       setProcessedUrl(URL.createObjectURL(result));
       setShareUrl(undefined);

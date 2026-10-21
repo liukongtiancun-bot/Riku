@@ -1,10 +1,10 @@
 ---
 name: Browser MP3 encoding
-description: Client-side MP3 generation uses lamejs with a local ambient declaration.
+description: Use the maintained lamejs fork in a worker for browser-side MP3 output.
 ---
 
-Browser-side MP3 output uses `lamejs`; the package registry used by this workspace does not provide a usable `@types/lamejs` package, so TypeScript needs a small local declaration. MP3 inputs stay on-device. The user approved temporarily uploading video inputs for server-side audio extraction, then deleting the source video.
+Browser-side MP3 output uses `@breezystack/lamejs` inside a Web Worker. The original `lamejs@1.2.1` can fail in Vite browser bundles with `MPEGMode is not defined`; the maintained fork preserves the familiar encoder API and works with browser bundling. MP3 inputs and effects stay on-device. The user approved temporarily uploading video inputs for server-side audio extraction, then deleting the source video.
 
-**Why:** Browser-side encoding preserves the no-upload flow for audio files, while server-side extraction makes large video imports practical without retaining the original video.
+**Why:** The old encoder failed after successful video extraction, so the UI never produced an MP3. Moving encoding into a worker also keeps the interface responsive for long tracks.
 
-**How to apply:** Keep audio-only processing on-device. For videos, disclose temporary upload and deletion clearly, cap uploads at 500 MB, and clean up the source object after extraction.
+**How to apply:** Use the maintained fork in the worker for browser-side MP3 output. Keep audio-only processing on-device. For videos, disclose temporary upload and deletion clearly, cap uploads at 500 MB, and clean up the source object after extraction.

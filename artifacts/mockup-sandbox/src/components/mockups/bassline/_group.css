@@ -1,0 +1,89 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+
+:root {
+  --app-font-sans: 'DM Sans', sans-serif;
+  --app-font-mono: 'Space Mono', monospace;
+}
+
+body {
+  min-width: 320px;
+  background:
+    radial-gradient(circle at 74% -18%, rgba(225, 151, 73, 0.13), transparent 36rem),
+    radial-gradient(circle at -10% 60%, rgba(40, 85, 95, 0.18), transparent 30rem),
+    #10171e;
+}
+
+.app-shell {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.font-mono-label {
+  font-family: var(--app-font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.brand-mark {
+  box-shadow: 0 0 0 1px rgba(239, 170, 96, 0.14), 0 10px 28px rgba(224, 141, 50, 0.12);
+}
+
+.upload-panel {
+  background:
+    linear-gradient(135deg, rgba(244, 173, 101, 0.055), transparent 38%),
+    rgba(22, 32, 41, 0.74);
+  border: 1px solid rgba(195, 152, 101, 0.24);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.16), inset 0 1px rgba(255, 255, 255, 0.045);
+}
+
+.upload-panel.is-dragging {
+  border-color: #eca35d;
+  background-color: rgba(224, 143, 57, 0.11);
+}
+
+.grid-lines {
+  background-image: linear-gradient(rgba(169, 186, 190, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(169, 186, 190, 0.055) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(to bottom, transparent, black 18%, black 80%, transparent);
+}
+
+.booth-orbit {
+  border: 1px solid rgba(237, 166, 93, 0.22);
+  box-shadow: inset 0 0 0 14px rgba(236, 166, 93, 0.025), inset 0 0 0 15px rgba(236, 166, 93, 0.1);
+}
+
+.booth-orbit::after {
+  content: '';
+  position: absolute;
+  inset: 22%;
+  border: 1px solid rgba(111, 191, 187, 0.28);
+  border-radius: 999px;
+}
+
+.wave-bar {
+  transform-origin: center;
+  animation: bassline-wave 1.55s ease-in-out infinite alternate;
+}
+
+.wave-bar:nth-child(3n) { animation-delay: -0.6s; }
+.wave-bar:nth-child(4n) { animation-delay: -1s; }
+.wave-bar:nth-child(5n) { animation-delay: -0.25s; }
+
+.reveal { animation: bassline-reveal 560ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.reveal-delay-1 { animation-delay: 90ms; }
+
+@keyframes bassline-wave {
+  from { transform: scaleY(0.66); opacity: 0.55; }
+  to { transform: scaleY(1); opacity: 1; }
+}
+
+@keyframes bassline-reveal {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+}
